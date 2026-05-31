@@ -65,6 +65,9 @@ namespace ExamWeb.Server
             builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
             builder.Services.AddScoped<ITestService, TestService>();
             builder.Services.AddScoped<IStudentService, StudentService>();
+            builder.Services.AddScoped<IOnlineClassService, OnlineClassService>();
+            builder.Services.AddSingleton<OnlineClassSocketManager>();
+            builder.Services.AddSingleton<IOnlineClassRealtimeNotifier>(sp => sp.GetRequiredService<OnlineClassSocketManager>());
             builder.Services.AddAuthorization();
             builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JwtSettings"));
 
@@ -87,6 +90,18 @@ namespace ExamWeb.Server
                     };
                     option.Events = new JwtBearerEvents
                     {
+                        OnMessageReceived = context =>
+                        {
+                            var accessToken = context.Request.Query["access_token"];
+                            var path = context.HttpContext.Request.Path;
+                            if (!string.IsNullOrWhiteSpace(accessToken) &&
+                                path.StartsWithSegments("/ws/online-class"))
+                            {
+                                context.Token = accessToken;
+                            }
+
+                            return Task.CompletedTask;
+                        },
                         OnAuthenticationFailed = context =>
                         {
                             if (context.Exception.GetType() == typeof(SecurityTokenExpiredException))
@@ -145,7 +160,13 @@ namespace ExamWeb.Server
             app.UseCors("AllowAll");
             app.UseAuthentication();
             app.UseAuthorization();
+            app.UseWebSockets();
 
+            app.Map("/ws/online-class", async context =>
+            {
+                var socketManager = context.RequestServices.GetRequiredService<OnlineClassSocketManager>();
+                await socketManager.HandleConnectionAsync(context);
+            });
             app.MapControllers();
 
             if (hasClientDist)

@@ -39,6 +39,9 @@ namespace ExamWeb.Server.Services
         public string? Username =>
             _httpContextAccessor.HttpContext?.User?.FindFirstValue("username");
 
+        public string? DisplayName =>
+            _httpContextAccessor.HttpContext?.User?.FindFirstValue(ClaimTypes.Name);
+
         public string? Role =>
             _httpContextAccessor.HttpContext?.User?.FindFirstValue(ClaimTypes.Role)
             ?? _httpContextAccessor.HttpContext?.User?.FindFirstValue("role");

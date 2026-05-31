@@ -2,6 +2,7 @@
 using ExamWeb.Domain.Entity.ExamAttempts;
 using ExamWeb.Domain.Entity.Accounts;
 using ExamWeb.Domain.Entity.ExamMonitorEvents;
+using ExamWeb.Domain.Entity.OnlineClasses;
 using ExamWeb.Domain.Entity.Questions;
 using ExamWeb.Domain.Entity.Tests;
 using Microsoft.EntityFrameworkCore;
@@ -24,5 +25,9 @@ namespace ExamWeb.Infrastructure.Data
         public DbSet<Answer> Answers { get; set; }
         public DbSet<ExamAttempt> ExamAttempts { get; set; }
         public DbSet<ExamMonitorEvent> ExamMonitorEvents { get; set; }
+        public DbSet<ClassMaterial> ClassMaterials { get; set; }
+        public DbSet<OnlineClassState> OnlineClassStates { get; set; }
+        public DbSet<WhiteboardSnapshot> WhiteboardSnapshots { get; set; }
+        public DbSet<OnlineChatMessage> OnlineChatMessages { get; set; }
     }
 }

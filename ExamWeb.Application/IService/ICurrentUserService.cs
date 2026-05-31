@@ -4,6 +4,7 @@ namespace ExamWeb.Application.IService
     {
         int? AccountId { get; }
         string? Username { get; }
+        string? DisplayName { get; }
         string? Role { get; }
         bool IsAuthenticated { get; }
         bool IsAdmin { get; }

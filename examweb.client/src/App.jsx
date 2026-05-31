@@ -4,8 +4,9 @@ import './App.css'
 const APP_NAME = 'Lớp học thầy Đạt'
 const AUTH_STORAGE_KEY = 'examWebAuth'
 const ADMIN_ROLE = 'Admin'
+const MAX_PDF_FILE_SIZE = 12 * 1024 * 1024
 
-const API_BASE_URL = 'https://examweb-api-dat-d5fkfybja3buccdz.southeastasia-01.azurewebsites.net'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
 
 const initialNewStudent = () => ({
     username: '',
@@ -63,6 +64,23 @@ const initialQuestionDraft = () => ({
     ],
 })
 
+const initialOnlineClassState = () => ({
+    title: 'Lớp học online',
+    agenda: 'Ôn tập, giải đáp bài và làm việc trên bảng trắng.',
+    isLive: false,
+    whiteboardImage: '',
+    updatedAt: null,
+})
+
+function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(reader.result)
+        reader.onerror = () => reject(new Error('Không thể đọc tệp đã chọn'))
+        reader.readAsDataURL(file)
+    })
+}
+
 async function requestJson(url, options = {}) {
     const { headers, ...requestOptions } = options
 
@@ -76,7 +94,7 @@ async function requestJson(url, options = {}) {
             },
         })
     } catch {
-        throw new Error('Không kết nối được máy chủ Azure')
+        throw new Error('Không kết nối được máy chủ')
     }
 
     if (!response.ok) {
@@ -129,10 +147,43 @@ async function studentsApi(path = '', options = {}) {
     })
 }
 
+async function materialsApi(path = '', options = {}) {
+    const session = getStoredSession()
+    return requestJson(`${API_BASE_URL}/api/materials${path}`, {
+        ...options,
+        headers: {
+            ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            ...options.headers,
+        },
+    })
+}
+
+async function onlineClassApi(path = '', options = {}) {
+    const session = getStoredSession()
+    return requestJson(`${API_BASE_URL}/api/online-class${path}`, {
+        ...options,
+        headers: {
+            ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            ...options.headers,
+        },
+    })
+}
+
+function getOnlineClassSocketUrl(session) {
+    if (!session?.accessToken) return ''
+    const baseUrl = API_BASE_URL || window.location.origin
+    const url = new URL('/ws/online-class', baseUrl)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    url.searchParams.set('access_token', session.accessToken)
+    return url.toString()
+}
+
 const ADMIN_SECTIONS = [
     { id: 'dashboard', label: 'Tổng quan', icon: '◫' },
     { id: 'students', label: 'Học sinh', icon: '◉' },
     { id: 'tests', label: 'Đề thi', icon: '▤' },
+    { id: 'documents', label: 'Tài liệu PDF', icon: '▣' },
+    { id: 'online', label: 'Lớp online', icon: '◍' },
 ]
 
 const ADMIN_TEST_TABS = [
@@ -164,7 +215,7 @@ async function exitExamFullscreen() {
 function formatStudentLabel(student) {
     const parts = [student.displayName]
     if (student.grade) parts.push(`Khối ${student.grade}`)
-    if (student.className) parts.push(`Lá»›p ${student.className}`)
+    if (student.className) parts.push(`Lớp ${student.className}`)
     return parts.join(' · ')
 }
 
@@ -172,6 +223,12 @@ function formatScore(value) {
     return Number(value || 0).toLocaleString('vi-VN', {
         maximumFractionDigits: 2,
     })
+}
+
+function formatFileSize(bytes) {
+    const value = Number(bytes) || 0
+    if (value < 1024 * 1024) return `${Math.max(1, Math.round(value / 1024))} KB`
+    return `${(value / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function formatDuration(totalSeconds) {
@@ -262,6 +319,11 @@ function App() {
     const [inputMethod, setInputMethod] = useState('manual')
     const [questionDraft, setQuestionDraft] = useState(initialQuestionDraft)
     const [jsonDraft, setJsonDraft] = useState('')
+    const [materials, setMaterials] = useState([])
+    const [onlineClass, setOnlineClass] = useState(initialOnlineClassState)
+    const [whiteboardSnapshots, setWhiteboardSnapshots] = useState([])
+    const [chatMessages, setChatMessages] = useState([])
+    const [onlineNotice, setOnlineNotice] = useState('')
 
     const [loading, setLoading] = useState(false)
     const [historyLoading, setHistoryLoading] = useState(false)
@@ -319,6 +381,59 @@ function App() {
             }
         }
     }, [handleAuthFailure])
+
+    const loadMaterials = useCallback(async () => {
+        try {
+            const data = await materialsApi()
+            setMaterials(data)
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        }
+    }, [handleAuthFailure])
+
+    const loadOnlineClass = useCallback(async () => {
+        try {
+            const data = await onlineClassApi()
+            setOnlineClass({ ...initialOnlineClassState(), ...data })
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        }
+    }, [handleAuthFailure])
+
+    const loadWhiteboardSnapshots = useCallback(async () => {
+        try {
+            const data = await onlineClassApi('/whiteboard/snapshots')
+            setWhiteboardSnapshots(data)
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        }
+    }, [handleAuthFailure])
+
+    const loadChatMessages = useCallback(async () => {
+        try {
+            const data = await onlineClassApi('/chat')
+            setChatMessages(data)
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        }
+    }, [handleAuthFailure])
+
+    const loadOnlineClassData = useCallback(async () => {
+        await Promise.all([
+            loadMaterials(),
+            loadOnlineClass(),
+            loadWhiteboardSnapshots(),
+            loadChatMessages(),
+        ])
+    }, [loadChatMessages, loadMaterials, loadOnlineClass, loadWhiteboardSnapshots])
 
     const stopScreenStream = useCallback(() => {
         if (screenStreamRef.current) {
@@ -493,12 +608,13 @@ function App() {
 
         const initialLoad = window.setTimeout(() => {
             loadTests()
+            loadOnlineClassData()
             if (getModeForSession(auth) === 'admin') {
                 loadStudents()
             }
         }, 0)
         return () => window.clearTimeout(initialLoad)
-    }, [auth, loadStudents, loadTests])
+    }, [auth, loadOnlineClassData, loadStudents, loadTests])
 
     useEffect(() => {
         if (!studentTest || !monitoringSessionId || result || monitoringStatus !== 'active') return undefined
@@ -603,6 +719,10 @@ function App() {
         setAdminSection('dashboard')
         setAttemptHistory([])
         setScreenMonitorSessions([])
+        setMaterials([])
+        setOnlineClass(initialOnlineClassState())
+        setWhiteboardSnapshots([])
+        setChatMessages([])
         resetStudentWork()
         window.history.replaceState({}, '', '/')
         setError('')
@@ -1003,6 +1123,229 @@ function App() {
         }
     }
 
+    async function addMaterial({ title, description, file }) {
+        const cleanTitle = title.trim()
+        if (!cleanTitle) {
+            setError('Tên tài liệu không được bỏ trống')
+            return false
+        }
+        if (!file) {
+            setError('Hãy chọn tệp PDF')
+            return false
+        }
+        if (file.type !== 'application/pdf') {
+            setError('Chỉ hỗ trợ tài liệu PDF')
+            return false
+        }
+        if (file.size > MAX_PDF_FILE_SIZE) {
+            setError('Tệp PDF vượt quá giới hạn 12MB')
+            return false
+        }
+
+        setSaving(true)
+        setError('')
+        try {
+            const dataUrl = await readFileAsDataUrl(file)
+            await materialsApi('', {
+                method: 'POST',
+                body: JSON.stringify({
+                    title: cleanTitle,
+                    description: description.trim(),
+                    fileName: file.name,
+                    dataUrl,
+                }),
+            })
+            await loadMaterials()
+            setOnlineNotice('Đã lưu tài liệu PDF lên hệ thống')
+            return true
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+            return false
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    async function deleteMaterial(materialId) {
+        if (!window.confirm('Xóa tài liệu này?')) return
+        setSaving(true)
+        setError('')
+        try {
+            await materialsApi(`/${materialId}`, { method: 'DELETE' })
+            await loadMaterials()
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    async function updateOnlineClassSettings(settings) {
+        setSaving(true)
+        setError('')
+        try {
+            const updated = await onlineClassApi('/settings', {
+                method: 'PUT',
+                body: JSON.stringify({
+                    title: settings.title.trim() || 'Lớp học online',
+                    agenda: settings.agenda.trim(),
+                }),
+            })
+            setOnlineClass({ ...initialOnlineClassState(), ...updated })
+            setOnlineNotice('Đã lưu thông tin lớp online')
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    async function toggleOnlineClassLive() {
+        setSaving(true)
+        setError('')
+        try {
+            const updated = await onlineClassApi('/live', {
+                method: 'POST',
+                body: JSON.stringify({ isLive: !onlineClass.isLive }),
+            })
+            setOnlineClass({ ...initialOnlineClassState(), ...updated })
+            setOnlineNotice(updated.isLive ? 'Đã mở lớp online' : 'Đã kết thúc lớp online')
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    async function saveWhiteboardImage(dataUrl) {
+        setSaving(true)
+        setError('')
+        try {
+            await onlineClassApi('/whiteboard', {
+                method: 'POST',
+                body: JSON.stringify({ dataUrl }),
+            })
+            await Promise.all([loadOnlineClass(), loadWhiteboardSnapshots()])
+            setOnlineNotice('Đã lưu bảng trắng lên hệ thống')
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    async function useWhiteboardSnapshot(snapshotId) {
+        setSaving(true)
+        setError('')
+        try {
+            const updated = await onlineClassApi(`/whiteboard/snapshots/${snapshotId}/use`, {
+                method: 'POST',
+            })
+            setOnlineClass({ ...initialOnlineClassState(), ...updated })
+            setOnlineNotice('Đã mở lại bản lưu bảng trắng')
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    async function deleteWhiteboardSnapshot(snapshotId) {
+        setSaving(true)
+        setError('')
+        try {
+            await onlineClassApi(`/whiteboard/snapshots/${snapshotId}`, { method: 'DELETE' })
+            await loadWhiteboardSnapshots()
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    async function sendChatMessage(text) {
+        const cleanText = text.trim()
+        if (!cleanText) return
+        try {
+            const message = await onlineClassApi('/chat', {
+                method: 'POST',
+                body: JSON.stringify({ text: cleanText }),
+            })
+            setChatMessages((current) =>
+                current.some((item) => item.id === message.id)
+                    ? current
+                    : [...current, message].slice(-160),
+            )
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        }
+    }
+
+    async function clearChatMessages() {
+        if (!window.confirm('Xóa toàn bộ chat của lớp online?')) return
+        setSaving(true)
+        setError('')
+        try {
+            await onlineClassApi('/chat', { method: 'DELETE' })
+            setChatMessages([])
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    function handleOnlineRealtimeEvent(type, payload) {
+        if (type === 'materials-updated') {
+            loadMaterials()
+            return
+        }
+        if (type === 'online-class-updated' && payload) {
+            setOnlineClass({ ...initialOnlineClassState(), ...payload })
+            return
+        }
+        if (type === 'whiteboard-updated') {
+            if (payload?.onlineClass) {
+                setOnlineClass({ ...initialOnlineClassState(), ...payload.onlineClass })
+            }
+            loadWhiteboardSnapshots()
+            return
+        }
+        if (type === 'whiteboard-snapshots-updated') {
+            loadWhiteboardSnapshots()
+            return
+        }
+        if (type === 'chat-message' && payload?.id) {
+            setChatMessages((current) =>
+                current.some((item) => item.id === payload.id)
+                    ? current
+                    : [...current, payload].slice(-160),
+            )
+            return
+        }
+        if (type === 'chat-cleared') {
+            setChatMessages([])
+        }
+    }
+
     function resetStudentWork() {
         stopScreenStream()
         exitExamFullscreen()
@@ -1085,29 +1428,42 @@ function App() {
                 inputMethod={inputMethod}
                 jsonDraft={jsonDraft}
                 loading={loading}
+                materials={materials}
                 monitoringLoading={monitoringLoading}
                 newDurationMinutes={newDurationMinutes}
                 newStudent={newStudent}
                 newTestAssignedStudentIds={newTestAssignedStudentIds}
                 newTestName={newTestName}
                 onAddDraftAnswer={addDraftAnswer}
+                onAddMaterial={addMaterial}
+                onClearChat={clearChatMessages}
                 onAddQuestion={addQuestion}
                 onCreateStudent={createStudentAccount}
                 onCreateTest={createTest}
+                onDeleteMaterial={deleteMaterial}
                 onDeleteQuestion={deleteQuestion}
                 onDeleteStudent={deleteStudentAccount}
                 onDeleteTest={deleteTest}
+                onDeleteWhiteboardSnapshot={deleteWhiteboardSnapshot}
                 onImportJson={importQuestionsFromJson}
                 onLogout={handleLogout}
                 onOpenTest={openAdminTest}
                 onRemoveDraftAnswer={removeDraftAnswer}
+                onSaveWhiteboard={saveWhiteboardImage}
+                onSendChatMessage={sendChatMessage}
+                onRealtimeEvent={handleOnlineRealtimeEvent}
                 onSetAdminSection={setAdminSection}
                 onSetAdminTestTab={setAdminTestTab}
                 onSetInputMethod={setInputMethod}
+                onToggleOnlineLive={toggleOnlineClassLive}
                 onToggleAssignedStudent={toggleAssignedStudent}
                 onToggleNewTestAssignedStudent={toggleNewTestAssignedStudent}
+                onUpdateOnlineClass={updateOnlineClassSettings}
                 onUpdateDraftAnswer={updateDraftAnswer}
                 onUpdateSettings={updateTestSettings}
+                onUseWhiteboardSnapshot={useWhiteboardSnapshot}
+                onlineClass={onlineClass}
+                onlineNotice={onlineNotice}
                 questionDraft={questionDraft}
                 saving={saving}
                 screenMonitorSessions={screenMonitorSessions}
@@ -1120,6 +1476,8 @@ function App() {
                 setQuestionDraft={setQuestionDraft}
                 students={students}
                 tests={tests}
+                chatMessages={chatMessages}
+                whiteboardSnapshots={whiteboardSnapshots}
             />
         )
     }
@@ -1175,9 +1533,18 @@ function App() {
             ) : (
                 <StudentView
                     auth={auth}
+                    chatMessages={chatMessages}
                     loading={loading}
+                    materials={materials}
+                    onSaveWhiteboard={saveWhiteboardImage}
                     onSelectTest={requestOpenStudentTest}
+                    onSendChatMessage={sendChatMessage}
+                    onRealtimeEvent={handleOnlineRealtimeEvent}
+                    onUseWhiteboardSnapshot={useWhiteboardSnapshot}
+                    onlineClass={onlineClass}
+                    onlineNotice={onlineNotice}
                     tests={tests}
+                    whiteboardSnapshots={whiteboardSnapshots}
                 />
             )}
 
@@ -1290,7 +1657,7 @@ function ScreenMonitorConsentDialog({ loading, onCancel, onConfirm, testName }) 
                 </ul>
                 <div className="modal-actions">
                     <button className="ghost-button" disabled={loading} onClick={onCancel} type="button">
-                        Há»§y
+                        Hủy
                     </button>
                     <button className="primary-button" disabled={loading} onClick={onConfirm} type="button">
                         {loading ? 'Đang khởi tạo...' : 'Đồng ý và bắt đầu'}
@@ -1459,10 +1826,24 @@ function ExamFullscreenView({
     )
 }
 
-function StudentView({ auth, loading, onSelectTest, tests }) {
+function StudentView({
+    auth,
+    chatMessages,
+    loading,
+    materials,
+    onSaveWhiteboard,
+    onSelectTest,
+    onSendChatMessage,
+    onRealtimeEvent,
+    onUseWhiteboardSnapshot,
+    onlineClass,
+    onlineNotice,
+    tests,
+    whiteboardSnapshots,
+}) {
     const profileParts = [
         auth.grade ? `Khối ${auth.grade}` : null,
-        auth.className ? `Lá»›p ${auth.className}` : null,
+        auth.className ? `Lớp ${auth.className}` : null,
     ].filter(Boolean)
 
     return (
@@ -1494,10 +1875,17 @@ function StudentView({ auth, loading, onSelectTest, tests }) {
             </aside>
 
             <section className="work-panel">
-                <EmptyState
-                    marker="HS"
-                    title={`Chọn đề tại ${APP_NAME}`}
-                    text="Chọn một đề trong danh sách. Hệ thống sẽ hỏi đồng ý chia sẻ màn hình trước khi vào chế độ toàn màn hình."
+                <StudentLearningHub
+                    auth={auth}
+                    chatMessages={chatMessages}
+                    materials={materials}
+                    onSaveWhiteboard={onSaveWhiteboard}
+                    onSendChatMessage={onSendChatMessage}
+                    onRealtimeEvent={onRealtimeEvent}
+                    onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
+                    onlineClass={onlineClass}
+                    onlineNotice={onlineNotice}
+                    whiteboardSnapshots={whiteboardSnapshots}
                 />
             </section>
         </main>
@@ -1518,29 +1906,42 @@ function AdminDashboard({
     inputMethod,
     jsonDraft,
     loading,
+    materials,
     monitoringLoading,
     newDurationMinutes,
     newStudent,
     newTestAssignedStudentIds,
     newTestName,
     onAddDraftAnswer,
+    onAddMaterial,
+    onClearChat,
     onAddQuestion,
     onCreateStudent,
     onCreateTest,
+    onDeleteMaterial,
     onDeleteQuestion,
     onDeleteStudent,
     onDeleteTest,
+    onDeleteWhiteboardSnapshot,
     onImportJson,
     onLogout,
     onOpenTest,
     onRemoveDraftAnswer,
+    onRealtimeEvent,
+    onSaveWhiteboard,
+    onSendChatMessage,
     onSetAdminSection,
     onSetAdminTestTab,
     onSetInputMethod,
+    onToggleOnlineLive,
     onToggleAssignedStudent,
     onToggleNewTestAssignedStudent,
+    onUpdateOnlineClass,
     onUpdateDraftAnswer,
     onUpdateSettings,
+    onUseWhiteboardSnapshot,
+    onlineClass,
+    onlineNotice,
     questionDraft,
     saving,
     screenMonitorSessions,
@@ -1553,6 +1954,8 @@ function AdminDashboard({
     setQuestionDraft,
     students,
     tests,
+    chatMessages,
+    whiteboardSnapshots,
 }) {
     const totalQuestions = tests.reduce((sum, test) => sum + (test.questionCount || 0), 0)
 
@@ -1615,6 +2018,8 @@ function AdminDashboard({
                             {adminSection === 'dashboard' && 'Tổng quan'}
                             {adminSection === 'students' && 'Quản lý học sinh'}
                             {adminSection === 'tests' && 'Quản lý đề thi'}
+                            {adminSection === 'documents' && 'Tài liệu PDF'}
+                            {adminSection === 'online' && 'Lớp học online'}
                             {adminSection === 'test-edit' && (adminTest?.testName || 'Chi tiết đề')}
                         </h1>
                         <p className="subtitle">Bảng điều khiển quản trị lớp học</p>
@@ -1644,10 +2049,18 @@ function AdminDashboard({
                                     <span>Đề đang mở</span>
                                     <strong>{adminTest ? 1 : 0}</strong>
                                 </article>
+                                <article className="stat-card">
+                                    <span>Tài liệu PDF</span>
+                                    <strong>{materials.length}</strong>
+                                </article>
+                                <article className="stat-card">
+                                    <span>Lớp online</span>
+                                    <strong>{onlineClass.isLive ? 'Live' : 'Tắt'}</strong>
+                                </article>
                             </div>
                             <EmptyState
                                 marker="AD"
-                                text="Dùng menu bên trái để quản lý học sinh, tạo đề và theo dõi lịch sử làm bài."
+                                text="Dùng menu bên trái để quản lý học sinh, tạo đề, thêm tài liệu PDF và mở lớp học online."
                                 title="Chào admin"
                             />
                         </section>
@@ -1712,6 +2125,34 @@ function AdminDashboard({
                                 />
                             </section>
                         </div>
+                    )}
+
+                    {adminSection === 'documents' && (
+                        <AdminDocumentsPanel
+                            materials={materials}
+                            onAddMaterial={onAddMaterial}
+                            onDeleteMaterial={onDeleteMaterial}
+                            saving={saving}
+                        />
+                    )}
+
+                    {adminSection === 'online' && (
+                        <OnlineClassPanel
+                            auth={auth}
+                            canManage
+                            chatMessages={chatMessages}
+                            onlineClass={onlineClass}
+                            onlineNotice={onlineNotice}
+                            onClearChat={onClearChat}
+                            onDeleteWhiteboardSnapshot={onDeleteWhiteboardSnapshot}
+                            onRealtimeEvent={onRealtimeEvent}
+                            onSaveWhiteboard={onSaveWhiteboard}
+                            onSendChatMessage={onSendChatMessage}
+                            onToggleOnlineLive={onToggleOnlineLive}
+                            onUpdateOnlineClass={onUpdateOnlineClass}
+                            onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
+                            whiteboardSnapshots={whiteboardSnapshots}
+                        />
                     )}
 
                     {adminSection === 'test-edit' && !adminTest && (
@@ -1946,6 +2387,916 @@ function AdminDashboard({
 }
 
 
+function AdminDocumentsPanel({ materials, onAddMaterial, onDeleteMaterial, saving }) {
+    const fileInputRef = useRef(null)
+    const [draft, setDraft] = useState({ title: '', description: '', file: null })
+
+    function updateDraft(field, value) {
+        setDraft((current) => ({ ...current, [field]: value }))
+    }
+
+    async function handleSubmit(event) {
+        event.preventDefault()
+        const saved = await onAddMaterial(draft)
+        if (!saved) return
+        setDraft({ title: '', description: '', file: null })
+        if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+
+    return (
+        <section className="document-admin-layout">
+            <form className="admin-panel document-upload-form" onSubmit={handleSubmit}>
+                <div className="panel-title">
+                    <h2>Thêm tài liệu PDF</h2>
+                    <span className="badge-count">PDF</span>
+                </div>
+                <label htmlFor="material-title">Tên tài liệu</label>
+                <input
+                    id="material-title"
+                    onChange={(event) => updateDraft('title', event.target.value)}
+                    placeholder="Ví dụ: Bài giảng hàm số"
+                    value={draft.title}
+                />
+                <label htmlFor="material-description">Ghi chú</label>
+                <textarea
+                    id="material-description"
+                    onChange={(event) => updateDraft('description', event.target.value)}
+                    placeholder="Nội dung chính hoặc hướng dẫn học sinh đọc tài liệu"
+                    rows="3"
+                    value={draft.description}
+                />
+                <label htmlFor="material-file">Tệp PDF</label>
+                <input
+                    accept="application/pdf"
+                    id="material-file"
+                    onChange={(event) => updateDraft('file', event.target.files?.[0] || null)}
+                    ref={fileInputRef}
+                    type="file"
+                />
+                <p className="field-hint">Tài liệu được lưu trên hệ thống, hỗ trợ PDF dưới {formatFileSize(MAX_PDF_FILE_SIZE)}.</p>
+                <button className="primary-button" disabled={saving} type="submit">
+                    {saving ? 'Đang lưu...' : 'Lưu tài liệu'}
+                </button>
+            </form>
+
+            <MaterialLibrary
+                canManage
+                materials={materials}
+                onDeleteMaterial={onDeleteMaterial}
+            />
+        </section>
+    )
+}
+
+function StudentLearningHub({
+    auth,
+    chatMessages,
+    materials,
+    onSaveWhiteboard,
+    onSendChatMessage,
+    onRealtimeEvent,
+    onUseWhiteboardSnapshot,
+    onlineClass,
+    onlineNotice,
+    whiteboardSnapshots,
+}) {
+    return (
+        <div className="learning-hub">
+            <OnlineClassPanel
+                auth={auth}
+                chatMessages={chatMessages}
+                onlineClass={onlineClass}
+                onlineNotice={onlineNotice}
+                onSaveWhiteboard={onSaveWhiteboard}
+                onSendChatMessage={onSendChatMessage}
+                onRealtimeEvent={onRealtimeEvent}
+                onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
+                whiteboardSnapshots={whiteboardSnapshots}
+            />
+            <MaterialLibrary materials={materials} />
+        </div>
+    )
+}
+
+function MaterialLibrary({ canManage = false, materials, onDeleteMaterial }) {
+    const [selectedId, setSelectedId] = useState('')
+    const selectedMaterial = materials.find((material) => material.id === selectedId) || materials[0]
+
+    if (materials.length === 0) {
+        return (
+            <section className="admin-panel material-library">
+                <EmptyState
+                    marker="PDF"
+                    title="Chưa có tài liệu"
+                    text={canManage ? 'Admin thêm PDF ở form bên trái, học sinh sẽ xem được trong mục tài liệu.' : 'Admin chưa thêm tài liệu PDF cho lớp.'}
+                />
+            </section>
+        )
+    }
+
+    return (
+        <section className="admin-panel material-library">
+            <div className="panel-title">
+                <h2>{canManage ? 'Kho tài liệu' : 'Tài liệu PDF'}</h2>
+                <span className="badge-count">{materials.length}</span>
+            </div>
+
+            <div className="material-layout">
+                <div className="material-list">
+                    {materials.map((material) => (
+                        <button
+                            className={`material-item ${selectedMaterial?.id === material.id ? 'active' : ''}`}
+                            key={material.id}
+                            onClick={() => setSelectedId(material.id)}
+                            type="button"
+                        >
+                            <strong>{material.title}</strong>
+                            <span>{material.fileName} · {formatFileSize(material.fileSize)}</span>
+                            <small>{formatDateTime(material.createdAt)}</small>
+                        </button>
+                    ))}
+                </div>
+
+                <div className="material-preview">
+                    <div className="material-preview-head">
+                        <div>
+                            <h3>{selectedMaterial.title}</h3>
+                            <p>{selectedMaterial.description || 'Không có ghi chú'}</p>
+                        </div>
+                        <div className="row-actions">
+                            <a className="ghost-button" download={selectedMaterial.fileName} href={selectedMaterial.dataUrl}>
+                                Tải PDF
+                            </a>
+                            {canManage && (
+                                <button
+                                    className="delete-button outline"
+                                    onClick={() => onDeleteMaterial(selectedMaterial.id)}
+                                    type="button"
+                                >
+                                    Xóa
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                    <iframe
+                        className="pdf-viewer"
+                        src={selectedMaterial.dataUrl}
+                        title={selectedMaterial.title}
+                    />
+                </div>
+            </div>
+        </section>
+    )
+}
+
+function OnlineClassPanel({
+    auth,
+    canManage = false,
+    chatMessages,
+    onlineClass,
+    onlineNotice,
+    onClearChat,
+    onDeleteWhiteboardSnapshot,
+    onRealtimeEvent,
+    onSaveWhiteboard,
+    onSendChatMessage,
+    onToggleOnlineLive,
+    onUpdateOnlineClass,
+    onUseWhiteboardSnapshot,
+    whiteboardSnapshots,
+}) {
+    function handleSettingsSubmit(event) {
+        event.preventDefault()
+        const formData = new FormData(event.currentTarget)
+        onUpdateOnlineClass({
+            title: String(formData.get('title') || ''),
+            agenda: String(formData.get('agenda') || ''),
+        })
+    }
+
+    return (
+        <section className="online-class-panel">
+            <div className="online-class-head admin-panel">
+                <div>
+                    <p className="eyebrow">{onlineClass.isLive ? 'Đang live' : 'Chưa mở lớp'}</p>
+                    <h2>{onlineClass.title}</h2>
+                    <p>{onlineClass.agenda || 'Chưa có nội dung buổi học'}</p>
+                    {onlineClass.updatedAt && <small>Cập nhật: {formatDateTime(onlineClass.updatedAt)}</small>}
+                </div>
+                <span className={onlineClass.isLive ? 'status-chip' : 'status-chip warning'}>
+                    {onlineClass.isLive ? 'Lớp đang mở' : 'Lớp chưa mở'}
+                </span>
+            </div>
+
+            {onlineNotice && <div className="online-notice">{onlineNotice}</div>}
+
+            {canManage && (
+                <form className="admin-panel online-settings-form" onSubmit={handleSettingsSubmit}>
+                    <div className="form-row">
+                        <label htmlFor="online-title">Tên buổi học</label>
+                        <input
+                            defaultValue={onlineClass.title}
+                            id="online-title"
+                            key={`title-${onlineClass.updatedAt || 'initial'}`}
+                            name="title"
+                        />
+                    </div>
+                    <div className="form-row">
+                        <label htmlFor="online-agenda">Nội dung</label>
+                        <textarea
+                            defaultValue={onlineClass.agenda}
+                            id="online-agenda"
+                            key={`agenda-${onlineClass.updatedAt || 'initial'}`}
+                            name="agenda"
+                            rows="3"
+                        />
+                    </div>
+                    <div className="button-row">
+                        <button className="ghost-button" type="submit">Lưu thông tin</button>
+                        <button className="primary-button" onClick={onToggleOnlineLive} type="button">
+                            {onlineClass.isLive ? 'Kết thúc lớp' : 'Mở lớp online'}
+                        </button>
+                    </div>
+                </form>
+            )}
+
+            <div className="online-room-grid">
+                <div className="online-main-column">
+                    <MeetingDevicePanel
+                        auth={auth}
+                        onRealtimeEvent={onRealtimeEvent}
+                        onlineClass={onlineClass}
+                    />
+                    <WhiteboardTool
+                        canEdit={canManage || onlineClass.isLive}
+                        initialImage={onlineClass.whiteboardImage}
+                        onSave={onSaveWhiteboard}
+                    />
+                    <WhiteboardSnapshotList
+                        canManage={canManage}
+                        onDeleteSnapshot={onDeleteWhiteboardSnapshot}
+                        onUseSnapshot={onUseWhiteboardSnapshot}
+                        snapshots={whiteboardSnapshots}
+                    />
+                </div>
+                <ClassChatPanel
+                    disabled={!canManage && !onlineClass.isLive}
+                    messages={chatMessages}
+                    onClearChat={onClearChat}
+                    onSendMessage={onSendChatMessage}
+                    showManageActions={canManage}
+                />
+            </div>
+        </section>
+    )
+}
+
+function MeetingDevicePanel({ auth, onRealtimeEvent, onlineClass }) {
+    const localVideoRef = useRef(null)
+    const streamRef = useRef(null)
+    const socketRef = useRef(null)
+    const peerConnectionsRef = useRef(new Map())
+    const connectionIdRef = useRef('')
+    const realtimeHandlerRef = useRef(onRealtimeEvent)
+    const [cameraOn, setCameraOn] = useState(false)
+    const [micOn, setMicOn] = useState(false)
+    const [mediaError, setMediaError] = useState('')
+    const [socketStatus, setSocketStatus] = useState('Đang kết nối')
+    const [peers, setPeers] = useState({})
+
+    useEffect(() => {
+        realtimeHandlerRef.current = onRealtimeEvent
+    }, [onRealtimeEvent])
+
+    const sendSignal = useCallback((type, targetConnectionId, payload) => {
+        const socket = socketRef.current
+        if (!socket || socket.readyState !== WebSocket.OPEN) return
+        socket.send(JSON.stringify({ type, targetConnectionId, payload }))
+    }, [])
+
+    const upsertPeer = useCallback((connectionId, patch) => {
+        setPeers((current) => ({
+            ...current,
+            [connectionId]: {
+                connectionId,
+                displayName: 'Người tham gia',
+                role: 'User',
+                stream: null,
+                connectionState: 'new',
+                ...(current[connectionId] || {}),
+                ...patch,
+            },
+        }))
+    }, [])
+
+    const removePeer = useCallback((connectionId) => {
+        const peerConnection = peerConnectionsRef.current.get(connectionId)
+        if (peerConnection) {
+            peerConnection.close()
+            peerConnectionsRef.current.delete(connectionId)
+        }
+        setPeers((current) => {
+            const next = { ...current }
+            delete next[connectionId]
+            return next
+        })
+    }, [])
+
+    const createAndSendOffer = useCallback(async (connectionId) => {
+        const peerConnection = peerConnectionsRef.current.get(connectionId)
+        if (!peerConnection) return
+        const offer = await peerConnection.createOffer()
+        await peerConnection.setLocalDescription(offer)
+        sendSignal('offer', connectionId, offer)
+    }, [sendSignal])
+
+    const createPeerConnection = useCallback((peer, shouldOffer = false) => {
+        if (!peer?.connectionId || peer.connectionId === connectionIdRef.current) return null
+        const existing = peerConnectionsRef.current.get(peer.connectionId)
+        if (existing) {
+            upsertPeer(peer.connectionId, peer)
+            return existing
+        }
+
+        const peerConnection = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+        })
+
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => {
+                peerConnection.addTrack(track, streamRef.current)
+            })
+        }
+
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                sendSignal('ice-candidate', peer.connectionId, event.candidate)
+            }
+        }
+
+        peerConnection.ontrack = (event) => {
+            upsertPeer(peer.connectionId, {
+                ...peer,
+                stream: event.streams[0],
+            })
+        }
+
+        peerConnection.onconnectionstatechange = () => {
+            upsertPeer(peer.connectionId, {
+                ...peer,
+                connectionState: peerConnection.connectionState,
+            })
+        }
+
+        peerConnectionsRef.current.set(peer.connectionId, peerConnection)
+        upsertPeer(peer.connectionId, peer)
+
+        if (shouldOffer) {
+            window.setTimeout(() => {
+                createAndSendOffer(peer.connectionId).catch(() => {
+                    setMediaError('Không thể tạo kết nối video với người tham gia')
+                })
+            }, 120)
+        }
+
+        return peerConnection
+    }, [createAndSendOffer, sendSignal, upsertPeer])
+
+    const renegotiatePeers = useCallback(async () => {
+        for (const connectionId of peerConnectionsRef.current.keys()) {
+            await createAndSendOffer(connectionId)
+        }
+    }, [createAndSendOffer])
+
+    const attachLocalStreamToPeers = useCallback((stream) => {
+        peerConnectionsRef.current.forEach((peerConnection) => {
+            const senderTracks = peerConnection.getSenders().map((sender) => sender.track).filter(Boolean)
+            stream.getTracks().forEach((track) => {
+                if (!senderTracks.includes(track)) {
+                    peerConnection.addTrack(track, stream)
+                }
+            })
+        })
+    }, [])
+
+    useEffect(() => () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop())
+        }
+        peerConnectionsRef.current.forEach((peerConnection) => peerConnection.close())
+        socketRef.current?.close()
+    }, [])
+
+    useEffect(() => {
+        if (!auth?.accessToken) return undefined
+
+        const socket = new WebSocket(getOnlineClassSocketUrl(auth))
+        socketRef.current = socket
+        const peerConnections = peerConnectionsRef.current
+
+        socket.onopen = () => setSocketStatus('Realtime đã kết nối')
+        socket.onclose = () => setSocketStatus('Realtime đã ngắt')
+        socket.onerror = () => setSocketStatus('Realtime lỗi kết nối')
+
+        socket.onmessage = async (event) => {
+            const message = JSON.parse(event.data)
+            const { type, payload } = message
+
+            if ([
+                'materials-updated',
+                'online-class-updated',
+                'whiteboard-updated',
+                'whiteboard-snapshots-updated',
+                'chat-message',
+                'chat-cleared',
+            ].includes(type)) {
+                realtimeHandlerRef.current?.(type, payload)
+                return
+            }
+
+            if (type === 'connected') {
+                connectionIdRef.current = payload.connectionId
+                payload.peers?.forEach((peer) => createPeerConnection(peer, true))
+                return
+            }
+
+            if (type === 'peer-joined') {
+                createPeerConnection(payload, true)
+                return
+            }
+
+            if (type === 'peer-left') {
+                removePeer(payload.connectionId)
+                return
+            }
+
+            if (type === 'offer') {
+                const peer = {
+                    connectionId: payload.fromConnectionId,
+                    displayName: payload.fromDisplayName,
+                    role: 'User',
+                }
+                const peerConnection = createPeerConnection(peer, false)
+                if (!peerConnection) return
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
+                const answer = await peerConnection.createAnswer()
+                await peerConnection.setLocalDescription(answer)
+                sendSignal('answer', peer.connectionId, answer)
+                return
+            }
+
+            if (type === 'answer') {
+                const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
+                if (peerConnection) {
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
+                }
+                return
+            }
+
+            if (type === 'ice-candidate') {
+                const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
+                if (peerConnection && payload.payload) {
+                    await peerConnection.addIceCandidate(new RTCIceCandidate(payload.payload))
+                }
+            }
+        }
+
+        return () => {
+            socket.close()
+            if (socketRef.current === socket) {
+                socketRef.current = null
+            }
+            peerConnections.forEach((peerConnection) => peerConnection.close())
+            peerConnections.clear()
+            setPeers({})
+        }
+    }, [auth, createPeerConnection, removePeer, sendSignal])
+
+    async function startMedia() {
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setMediaError('Trình duyệt chưa hỗ trợ camera/micro')
+            return null
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+            streamRef.current = stream
+            if (localVideoRef.current) localVideoRef.current.srcObject = stream
+            setCameraOn(stream.getVideoTracks().some((track) => track.enabled))
+            setMicOn(stream.getAudioTracks().some((track) => track.enabled))
+            setMediaError('')
+            attachLocalStreamToPeers(stream)
+            await renegotiatePeers()
+            return stream
+        } catch {
+            setMediaError('Không thể bật camera hoặc micro. Hãy kiểm tra quyền trình duyệt.')
+            return null
+        }
+    }
+
+    async function toggleCamera() {
+        const stream = streamRef.current || await startMedia()
+        if (!stream) return
+        const next = !cameraOn
+        stream.getVideoTracks().forEach((track) => {
+            track.enabled = next
+        })
+        setCameraOn(next)
+        await renegotiatePeers()
+    }
+
+    async function toggleMicrophone() {
+        const stream = streamRef.current || await startMedia()
+        if (!stream) return
+        const next = !micOn
+        stream.getAudioTracks().forEach((track) => {
+            track.enabled = next
+        })
+        setMicOn(next)
+        await renegotiatePeers()
+    }
+
+    async function stopMedia() {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop())
+        }
+        streamRef.current = null
+        if (localVideoRef.current) localVideoRef.current.srcObject = null
+        peerConnectionsRef.current.forEach((peerConnection) => {
+            peerConnection.getSenders().forEach((sender) => {
+                if (sender.track) {
+                    peerConnection.removeTrack(sender)
+                }
+            })
+        })
+        setCameraOn(false)
+        setMicOn(false)
+        await renegotiatePeers()
+    }
+
+    const peerList = Object.values(peers)
+
+    return (
+        <section className="meeting-panel admin-panel">
+            <div className="panel-title">
+                <h2>Phòng video</h2>
+                <span className={onlineClass.isLive ? 'status-chip' : 'status-chip warning'}>
+                    {onlineClass.isLive ? 'Lớp đang mở' : 'Lớp chưa mở'}
+                </span>
+            </div>
+            <div className="meeting-status-row">
+                <span>{socketStatus}</span>
+                <span>{peerList.length} người khác</span>
+            </div>
+            <div className="video-grid">
+                <div className="video-tile local">
+                    <video autoPlay muted playsInline ref={localVideoRef} />
+                    {!cameraOn && <span>Camera đang tắt</span>}
+                    <strong>{auth?.displayName || auth?.username || 'Bạn'} · Bạn</strong>
+                </div>
+                {peerList.map((peer) => (
+                    <RemoteVideoTile key={peer.connectionId} peer={peer} />
+                ))}
+            </div>
+            {mediaError && <p className="field-hint danger-text">{mediaError}</p>}
+            <div className="media-controls">
+                <button className={cameraOn ? 'primary-button' : 'ghost-button'} onClick={toggleCamera} type="button">
+                    {cameraOn ? 'Tắt cam' : 'Bật cam'}
+                </button>
+                <button className={micOn ? 'primary-button' : 'ghost-button'} onClick={toggleMicrophone} type="button">
+                    {micOn ? 'Tắt micro' : 'Bật micro'}
+                </button>
+                <button className="ghost-button" onClick={stopMedia} type="button">
+                    Dừng thiết bị
+                </button>
+            </div>
+        </section>
+    )
+}
+
+function RemoteVideoTile({ peer }) {
+    const videoRef = useRef(null)
+
+    useEffect(() => {
+        if (videoRef.current) {
+            videoRef.current.srcObject = peer.stream || null
+        }
+    }, [peer.stream])
+
+    return (
+        <div className="video-tile">
+            <video autoPlay playsInline ref={videoRef} />
+            {!peer.stream && <span>Đang chờ video</span>}
+            <strong>{peer.displayName}</strong>
+            <small>{peer.connectionState || 'new'}</small>
+        </div>
+    )
+}
+
+function WhiteboardTool({ canEdit, initialImage, onSave }) {
+    const canvasRef = useRef(null)
+    const imageInputRef = useRef(null)
+    const drawingRef = useRef(false)
+    const pointsRef = useRef([])
+    const [tool, setTool] = useState('pen')
+    const [color, setColor] = useState('#111827')
+    const [lineWidth, setLineWidth] = useState(5)
+    const [smoothInk, setSmoothInk] = useState(true)
+
+    const resetCanvas = useCallback((imageDataUrl = '') => {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const context = canvas.getContext('2d')
+        context.save()
+        context.globalCompositeOperation = 'source-over'
+        context.fillStyle = '#ffffff'
+        context.fillRect(0, 0, canvas.width, canvas.height)
+        context.restore()
+
+        if (!imageDataUrl) return
+        const image = new Image()
+        image.onload = () => {
+            const scale = Math.min(canvas.width / image.width, canvas.height / image.height)
+            const width = image.width * scale
+            const height = image.height * scale
+            const x = (canvas.width - width) / 2
+            const y = (canvas.height - height) / 2
+            context.drawImage(image, x, y, width, height)
+        }
+        image.src = imageDataUrl
+    }, [])
+
+    useEffect(() => {
+        resetCanvas(initialImage)
+    }, [initialImage, resetCanvas])
+
+    function getCanvasPoint(event) {
+        const canvas = canvasRef.current
+        const rect = canvas.getBoundingClientRect()
+        return {
+            x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+            y: ((event.clientY - rect.top) / rect.height) * canvas.height,
+        }
+    }
+
+    function prepareContext() {
+        const context = canvasRef.current.getContext('2d')
+        context.lineCap = 'round'
+        context.lineJoin = 'round'
+        context.lineWidth = tool === 'eraser' ? lineWidth * 2.4 : lineWidth
+        context.strokeStyle = color
+        context.globalCompositeOperation = tool === 'eraser' ? 'destination-out' : 'source-over'
+        return context
+    }
+
+    function beginDraw(event) {
+        if (!canEdit) return
+        event.preventDefault()
+        canvasRef.current.setPointerCapture?.(event.pointerId)
+        const point = getCanvasPoint(event)
+        drawingRef.current = true
+        pointsRef.current = [point]
+        const context = prepareContext()
+        context.beginPath()
+        context.moveTo(point.x, point.y)
+        context.lineTo(point.x + 0.1, point.y + 0.1)
+        context.stroke()
+    }
+
+    function draw(event) {
+        if (!drawingRef.current || !canEdit) return
+        event.preventDefault()
+        const point = getCanvasPoint(event)
+        pointsRef.current.push(point)
+        const context = prepareContext()
+
+        if (smoothInk && pointsRef.current.length > 2) {
+            const previous = pointsRef.current[pointsRef.current.length - 2]
+            const current = pointsRef.current[pointsRef.current.length - 1]
+            const midpoint = {
+                x: (previous.x + current.x) / 2,
+                y: (previous.y + current.y) / 2,
+            }
+            context.quadraticCurveTo(previous.x, previous.y, midpoint.x, midpoint.y)
+            context.stroke()
+            return
+        }
+
+        context.lineTo(point.x, point.y)
+        context.stroke()
+    }
+
+    function endDraw(event) {
+        if (!drawingRef.current) return
+        event.preventDefault()
+        drawingRef.current = false
+        pointsRef.current = []
+        const context = canvasRef.current.getContext('2d')
+        context.closePath()
+        context.globalCompositeOperation = 'source-over'
+    }
+
+    function clearBoard() {
+        if (!canEdit) return
+        resetCanvas()
+    }
+
+    function saveBoard() {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        onSave(canvas.toDataURL('image/png'))
+    }
+
+    function downloadBoard() {
+        const canvas = canvasRef.current
+        if (!canvas) return
+        const link = document.createElement('a')
+        link.download = 'bang-trang.png'
+        link.href = canvas.toDataURL('image/png')
+        link.click()
+    }
+
+    async function insertImage(event) {
+        const file = event.target.files?.[0]
+        if (!file) return
+        const dataUrl = await readFileAsDataUrl(file)
+        const canvas = canvasRef.current
+        const context = canvas.getContext('2d')
+        const image = new Image()
+        image.onload = () => {
+            const maxWidth = canvas.width * 0.7
+            const maxHeight = canvas.height * 0.7
+            const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1)
+            const width = image.width * scale
+            const height = image.height * scale
+            const x = (canvas.width - width) / 2
+            const y = (canvas.height - height) / 2
+            context.drawImage(image, x, y, width, height)
+        }
+        image.src = dataUrl
+        if (imageInputRef.current) imageInputRef.current.value = ''
+    }
+
+    return (
+        <section className="whiteboard-panel admin-panel">
+            <div className="whiteboard-toolbar">
+                <div>
+                    <h2>Bảng trắng</h2>
+                    <span>{canEdit ? 'Có thể viết và lưu bảng' : 'Chỉ xem khi lớp chưa mở'}</span>
+                </div>
+                <div className="whiteboard-tools">
+                    <button className={tool === 'pen' ? 'primary-button' : 'ghost-button'} disabled={!canEdit} onClick={() => setTool('pen')} type="button">
+                        Bút
+                    </button>
+                    <button className={tool === 'eraser' ? 'primary-button' : 'ghost-button'} disabled={!canEdit} onClick={() => setTool('eraser')} type="button">
+                        Tẩy
+                    </button>
+                    <label className="color-control">
+                        Màu
+                        <input disabled={!canEdit} onChange={(event) => setColor(event.target.value)} type="color" value={color} />
+                    </label>
+                    <label className="range-control">
+                        Nét
+                        <input disabled={!canEdit} max="24" min="2" onChange={(event) => setLineWidth(Number(event.target.value))} type="range" value={lineWidth} />
+                    </label>
+                    <label className="smooth-toggle">
+                        <input checked={smoothInk} disabled={!canEdit} onChange={(event) => setSmoothInk(event.target.checked)} type="checkbox" />
+                        Đẹp chữ
+                    </label>
+                </div>
+            </div>
+
+            <div className="whiteboard-canvas-wrap">
+                <canvas
+                    aria-label="Bảng trắng lớp học"
+                    className="whiteboard-canvas"
+                    height="720"
+                    onPointerCancel={endDraw}
+                    onPointerDown={beginDraw}
+                    onPointerLeave={endDraw}
+                    onPointerMove={draw}
+                    onPointerUp={endDraw}
+                    ref={canvasRef}
+                    width="1280"
+                />
+            </div>
+
+            <div className="whiteboard-actions">
+                <input
+                    accept="image/*"
+                    className="hidden-file"
+                    disabled={!canEdit}
+                    onChange={insertImage}
+                    ref={imageInputRef}
+                    type="file"
+                />
+                <button className="ghost-button" disabled={!canEdit} onClick={() => imageInputRef.current?.click()} type="button">
+                    Chèn ảnh
+                </button>
+                <button className="ghost-button" disabled={!canEdit} onClick={clearBoard} type="button">
+                    Xóa bảng
+                </button>
+                <button className="ghost-button" onClick={downloadBoard} type="button">
+                    Tải PNG
+                </button>
+                <button className="primary-button" disabled={!canEdit} onClick={saveBoard} type="button">
+                    Lưu bảng
+                </button>
+            </div>
+        </section>
+    )
+}
+
+function WhiteboardSnapshotList({ canManage = false, onDeleteSnapshot, onUseSnapshot, snapshots }) {
+    return (
+        <section className="admin-panel snapshot-panel">
+            <div className="panel-title">
+                <h2>Bản lưu bảng trắng</h2>
+                <span className="badge-count">{snapshots.length}</span>
+            </div>
+            {snapshots.length === 0 ? (
+                <div className="empty-list">Chưa có bản lưu bảng trắng</div>
+            ) : (
+                <div className="snapshot-grid">
+                    {snapshots.map((snapshot) => (
+                        <article className="snapshot-card" key={snapshot.id}>
+                            <img alt={snapshot.title} src={snapshot.dataUrl} />
+                            <div>
+                                <strong>{snapshot.title}</strong>
+                                <span>{snapshot.authorName} · {formatDateTime(snapshot.createdAt)}</span>
+                            </div>
+                            <div className="row-actions">
+                                <button className="ghost-button" onClick={() => onUseSnapshot(snapshot.id)} type="button">
+                                    Mở
+                                </button>
+                                {canManage && (
+                                    <button className="delete-button outline" onClick={() => onDeleteSnapshot(snapshot.id)} type="button">
+                                        Xóa
+                                    </button>
+                                )}
+                            </div>
+                        </article>
+                    ))}
+                </div>
+            )}
+        </section>
+    )
+}
+
+function ClassChatPanel({ disabled = false, messages, onClearChat, onSendMessage, showManageActions = false }) {
+    const [messageText, setMessageText] = useState('')
+
+    function handleSubmit(event) {
+        event.preventDefault()
+        if (!messageText.trim() || disabled) return
+        onSendMessage(messageText)
+        setMessageText('')
+    }
+
+    return (
+        <section className="class-chat-panel admin-panel">
+            <div className="panel-title">
+                <h2>Chat lớp học</h2>
+                <span className="badge-count">{messages.length}</span>
+            </div>
+            <div className="chat-list" role="log">
+                {messages.length === 0 ? (
+                    <div className="empty-list">Chưa có tin nhắn</div>
+                ) : (
+                    messages.map((message) => (
+                        <article className="chat-message" key={message.id}>
+                            <div>
+                                <strong>{message.authorName}</strong>
+                                <span>{message.role} · {formatDateTime(message.createdAt)}</span>
+                            </div>
+                            <p>{message.text}</p>
+                        </article>
+                    ))
+                )}
+            </div>
+            <form className="chat-form" onSubmit={handleSubmit}>
+                <textarea
+                    disabled={disabled}
+                    onChange={(event) => setMessageText(event.target.value)}
+                    placeholder={disabled ? 'Lớp chưa mở' : 'Nhập tin nhắn...'}
+                    rows="3"
+                    value={messageText}
+                />
+                <div className="button-row">
+                    {showManageActions && (
+                        <button className="ghost-button" disabled={messages.length === 0} onClick={onClearChat} type="button">
+                            Xóa chat
+                        </button>
+                    )}
+                    <button className="primary-button" disabled={disabled || !messageText.trim()} type="submit">
+                        Gửi
+                    </button>
+                </div>
+            </form>
+        </section>
+    )
+}
+
 function StudentManagementPanel({ newStudent, onCreateStudent, onDeleteStudent, saving, setNewStudent, students }) {
     function updateField(field, value) {
         setNewStudent((current) => ({ ...current, [field]: value }))
@@ -1992,7 +3343,7 @@ function StudentManagementPanel({ newStudent, onCreateStudent, onDeleteStudent, 
                         />
                     </div>
                     <div>
-                        <label htmlFor="student-class">Lá»›p</label>
+                        <label htmlFor="student-class">Lớp</label>
                         <input
                             id="student-class"
                             onChange={(event) => updateField('className', event.target.value)}
