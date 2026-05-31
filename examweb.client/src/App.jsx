@@ -6,7 +6,7 @@ const AUTH_STORAGE_KEY = 'examWebAuth'
 const ADMIN_ROLE = 'Admin'
 const MAX_PDF_FILE_SIZE = 12 * 1024 * 1024
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || ''
+const API_BASE_URL = "https://examweb-api-dat-d5fkfybja3buccdz.southeastasia-01.azurewebsites.net/"
 
 const initialNewStudent = () => ({
     username: '',
