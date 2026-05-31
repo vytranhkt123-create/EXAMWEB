@@ -1187,6 +1187,12 @@ textarea:focus {
     padding: 20px 28px;
 }
 
+.admin-topbar-actions {
+    align-items: center;
+    display: flex;
+    gap: 10px;
+}
+
 .admin-topbar h1 {
     font-size: 24px;
     margin: 0;
@@ -1567,7 +1573,7 @@ textarea:focus {
     align-items: start;
     display: grid;
     gap: 18px;
-    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    grid-template-columns: minmax(0, 1fr);
 }
 
 .meeting-panel,
@@ -1665,6 +1671,297 @@ textarea:focus {
     border-radius: 8px;
     justify-content: center;
     padding: 10px;
+}
+
+.classroom-room-shell {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+    min-height: 0;
+}
+
+.classroom-main-area {
+    display: grid;
+    gap: 12px;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    min-width: 0;
+}
+
+.classroom-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.classroom-stage {
+    background:
+        radial-gradient(circle at 20% 10%, rgba(59, 130, 246, 0.18), transparent 28%),
+        #0f172a;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 8px;
+    min-height: 0;
+    overflow: auto;
+    padding: 12px;
+}
+
+.classroom-side-rail {
+    display: grid;
+    gap: 12px;
+    grid-template-rows: auto minmax(0, 1fr);
+    min-height: 0;
+}
+
+.classroom-side-rail .class-chat-panel,
+.class-members-panel {
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 8px;
+    box-shadow: none;
+    color: #e5e7eb;
+    padding: 14px;
+}
+
+.classroom-side-rail .class-chat-panel {
+    position: static;
+}
+
+.classroom-side-rail .panel-title h2,
+.class-members-panel .panel-title h2 {
+    color: #ffffff;
+}
+
+.classroom-side-rail textarea {
+    background: rgba(15, 23, 42, 0.84);
+    border-color: rgba(148, 163, 184, 0.32);
+    color: #ffffff;
+}
+
+.member-list {
+    display: grid;
+    gap: 8px;
+}
+
+.member-row {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    display: flex;
+    gap: 10px;
+    justify-content: space-between;
+    padding: 10px 12px;
+}
+
+.member-row span {
+    color: #f8fafc;
+    font-weight: 800;
+}
+
+.member-row small {
+    color: #cbd5e1;
+    font-weight: 700;
+}
+
+.member-row.active {
+    background: rgba(20, 184, 166, 0.18);
+    border-color: rgba(45, 212, 191, 0.32);
+}
+
+.screen-share-stage,
+.classroom-empty-stage {
+    align-items: center;
+    aspect-ratio: 16 / 9;
+    background: #020617;
+    border-radius: 8px;
+    color: #e5e7eb;
+    display: flex;
+    justify-content: center;
+    min-height: 360px;
+    overflow: hidden;
+}
+
+.screen-share-stage video {
+    height: 100%;
+    object-fit: contain;
+    width: 100%;
+}
+
+.screen-share-empty,
+.classroom-empty-stage {
+    display: grid;
+    gap: 12px;
+    justify-items: center;
+    text-align: center;
+}
+
+.classroom-slides-panel {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
+    min-height: 0;
+}
+
+.classroom-slide-list {
+    display: grid;
+    gap: 8px;
+    max-height: 72svh;
+    overflow: auto;
+}
+
+.classroom-slide-list button {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 8px;
+    color: #e5e7eb;
+    cursor: pointer;
+    display: grid;
+    gap: 4px;
+    padding: 10px;
+    text-align: left;
+}
+
+.classroom-slide-list button.active {
+    background: rgba(37, 99, 235, 0.28);
+    border-color: rgba(96, 165, 250, 0.58);
+}
+
+.classroom-slide-list span {
+    color: #cbd5e1;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.classroom-slide-preview .pdf-viewer {
+    height: calc(100svh - 188px);
+    min-height: 520px;
+}
+
+.classroom-whiteboard-stage {
+    display: grid;
+    gap: 12px;
+}
+
+.meeting-panel.in-room .whiteboard-panel,
+.meeting-panel.in-room .snapshot-panel {
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: none;
+}
+
+.student-hub-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.student-hub-tabs button {
+    background: #ffffff;
+    border: 1px solid #dbe4f3;
+    border-radius: 999px;
+    color: #334155;
+    cursor: pointer;
+    font-weight: 800;
+    padding: 10px 14px;
+}
+
+.student-hub-tabs button.active {
+    background: var(--teal);
+    border-color: var(--teal);
+    color: #ffffff;
+}
+
+.admin-panel,
+.stat-card,
+.question-block,
+.test-row,
+.material-item {
+    transform-style: preserve-3d;
+    transition: box-shadow 0.18s ease, transform 0.18s ease, border-color 0.18s ease;
+}
+
+.admin-panel:hover,
+.stat-card:hover,
+.material-item:hover {
+    box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+    transform: perspective(900px) translateY(-2px) rotateX(0.4deg);
+}
+
+.theme-dark.app-shell,
+.theme-dark.admin-dashboard {
+    background:
+        linear-gradient(135deg, rgba(20, 184, 166, 0.12), transparent 34%),
+        linear-gradient(225deg, rgba(96, 165, 250, 0.12), transparent 34%),
+        #0b1120;
+    color: #e5e7eb;
+}
+
+.theme-dark .topbar,
+.theme-dark .side-panel,
+.theme-dark .work-panel,
+.theme-dark .admin-panel,
+.theme-dark .login-panel,
+.theme-dark .session-card,
+.theme-dark .stat-card,
+.theme-dark .question-block,
+.theme-dark .exam-heading,
+.theme-dark .student-profile-card {
+    background: rgba(15, 23, 42, 0.9);
+    border-color: rgba(148, 163, 184, 0.24);
+    color: #e5e7eb;
+}
+
+.theme-dark .admin-main,
+.theme-dark .admin-content {
+    background: transparent;
+}
+
+.theme-dark .admin-topbar {
+    background: rgba(15, 23, 42, 0.92);
+    border-color: rgba(148, 163, 184, 0.22);
+}
+
+.theme-dark h1,
+.theme-dark h2,
+.theme-dark h3,
+.theme-dark .topbar h1,
+.theme-dark .panel-title h2,
+.theme-dark .exam-heading h2,
+.theme-dark .online-class-head h2,
+.theme-dark .material-preview h3,
+.theme-dark .question-head h3,
+.theme-dark .empty-state h2 {
+    color: #f8fafc;
+}
+
+.theme-dark .subtitle,
+.theme-dark .field-hint,
+.theme-dark .material-item span,
+.theme-dark .material-item small,
+.theme-dark .material-preview p,
+.theme-dark .online-class-head p,
+.theme-dark .online-class-head small,
+.theme-dark .whiteboard-toolbar span,
+.theme-dark .snapshot-card span,
+.theme-dark .chat-message span,
+.theme-dark .progress-text {
+    color: #cbd5e1;
+}
+
+.theme-dark input,
+.theme-dark textarea,
+.theme-dark .material-item,
+.theme-dark .test-row,
+.theme-dark .chat-message,
+.theme-dark .empty-list {
+    background: rgba(15, 23, 42, 0.72);
+    border-color: rgba(148, 163, 184, 0.24);
+    color: #e5e7eb;
+}
+
+.theme-dark .ghost-button,
+.theme-dark .student-hub-tabs button {
+    background: rgba(15, 23, 42, 0.88);
+    border-color: rgba(148, 163, 184, 0.32);
+    color: #e5e7eb;
 }
 
 .video-stage {
@@ -1995,7 +2292,9 @@ textarea:focus {
     .document-admin-layout,
     .material-layout,
     .online-settings-form,
-    .online-room-grid {
+    .online-room-grid,
+    .classroom-room-shell,
+    .classroom-slides-panel {
         grid-template-columns: 1fr;
     }
 

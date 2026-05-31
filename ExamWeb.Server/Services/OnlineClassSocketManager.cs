@@ -140,6 +140,23 @@ namespace ExamWeb.Server.Services
                     return;
                 }
 
+                if (type == "whiteboard-draw" || type == "whiteboard-clear")
+                {
+                    object? roomPayload = null;
+                    if (document.RootElement.TryGetProperty("payload", out var roomPayloadElement))
+                    {
+                        roomPayload = roomPayloadElement.Clone();
+                    }
+
+                    await BroadcastToMeetingAsync(type, new
+                    {
+                        fromConnectionId = connection.ConnectionId,
+                        fromDisplayName = connection.DisplayName,
+                        payload = roomPayload
+                    }, exceptConnectionId: connection.ConnectionId);
+                    return;
+                }
+
                 if (!document.RootElement.TryGetProperty("targetConnectionId", out var targetElement))
                 {
                     return;
