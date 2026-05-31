@@ -157,10 +157,11 @@ namespace ExamWeb.Server
                 app.UseHttpsRedirection();
             }
 
+            app.UseWebSockets();
             app.UseCors("AllowAll");
             app.UseAuthentication();
             app.UseAuthorization();
-            app.UseWebSockets();
+            
 
             app.Map("/ws/online-class", async context =>
             {

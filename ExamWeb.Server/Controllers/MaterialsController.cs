@@ -25,6 +25,20 @@ namespace ExamWeb.Server.Controllers
             return Ok(materials);
         }
 
+        [HttpGet("{materialId}/file")]
+        public async Task<IActionResult> GetMaterialFile(string materialId, CancellationToken cancellationToken)
+        {
+            var material = await _onlineClassService.GetMaterialFileAsync(materialId, cancellationToken);
+            if (material == null)
+            {
+                return NotFound();
+            }
+
+            Response.Headers.ContentDisposition = BuildInlineContentDisposition(material.FileName);
+            Response.Headers.XContentTypeOptions = "nosniff";
+            return File(material.Content, material.ContentType, enableRangeProcessing: true);
+        }
+
         [Authorize(Roles = "Admin")]
         [HttpPost]
         public async Task<ActionResult<MaterialDto>> CreateMaterial(CreateMaterialRequest request, CancellationToken cancellationToken)
@@ -53,6 +67,17 @@ namespace ExamWeb.Server.Controllers
             {
                 return BadRequest(new { message = ex.Message });
             }
+        }
+
+        private static string BuildInlineContentDisposition(string fileName)
+        {
+            var safeFileName = string.Concat(fileName.Where(ch => ch >= 32 && ch < 127 && ch != '"' && ch != '\\'));
+            if (string.IsNullOrWhiteSpace(safeFileName))
+            {
+                safeFileName = "document.pdf";
+            }
+
+            return $"inline; filename=\"{safeFileName}\"; filename*=UTF-8''{Uri.EscapeDataString(fileName)}";
         }
     }
 }

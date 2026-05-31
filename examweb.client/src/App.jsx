@@ -6,7 +6,34 @@ const AUTH_STORAGE_KEY = 'examWebAuth'
 const ADMIN_ROLE = 'Admin'
 const MAX_PDF_FILE_SIZE = 12 * 1024 * 1024
 
-const API_BASE_URL = "https://examweb-api-dat-d5fkfybja3buccdz.southeastasia-01.azurewebsites.net/"
+const DEFAULT_API_BASE_URL = 'https://examweb-api-dat-d5fkfybja3buccdz.southeastasia-01.azurewebsites.net'
+const DEFAULT_RTC_ICE_SERVERS = [
+    { urls: ['stun:stun.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] },
+]
+const API_BASE_URL = normalizeBaseUrl(import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL)
+const RTC_ICE_SERVERS = parseRtcIceServers(import.meta.env.VITE_RTC_ICE_SERVERS)
+
+function normalizeBaseUrl(value) {
+    const rawValue = String(value || '').trim()
+    if (!rawValue) return window.location.origin
+    return rawValue.replace(/\/+$/, '')
+}
+
+function buildApiUrl(path = '') {
+    const normalizedPath = path.startsWith('/') ? path : `/${path}`
+    return `${API_BASE_URL}${normalizedPath}`
+}
+
+function parseRtcIceServers(value) {
+    if (!value) return DEFAULT_RTC_ICE_SERVERS
+
+    try {
+        const parsed = JSON.parse(value)
+        return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_RTC_ICE_SERVERS
+    } catch {
+        return DEFAULT_RTC_ICE_SERVERS
+    }
+}
 
 const initialNewStudent = () => ({
     username: '',
@@ -81,6 +108,19 @@ function readFileAsDataUrl(file) {
     })
 }
 
+function dataUrlToBlob(dataUrl) {
+    const [metadata = '', base64 = ''] = String(dataUrl || '').split(',')
+    const contentType = metadata.match(/^data:(.*?);base64$/i)?.[1] || 'application/pdf'
+    const binary = window.atob(base64)
+    const bytes = new Uint8Array(binary.length)
+
+    for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index)
+    }
+
+    return new Blob([bytes], { type: contentType })
+}
+
 async function requestJson(url, options = {}) {
     const { headers, ...requestOptions } = options
 
@@ -121,13 +161,48 @@ async function requestJson(url, options = {}) {
     return response.json()
 }
 
+async function requestBlob(url, options = {}) {
+    const { headers, ...requestOptions } = options
+
+    let response
+    try {
+        response = await fetch(url, {
+            ...requestOptions,
+            headers: {
+                ...headers,
+            },
+        })
+    } catch {
+        throw new Error('Không kết nối được máy chủ')
+    }
+
+    if (!response.ok) {
+        let message = response.status === 401
+            ? 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn'
+            : response.status === 403
+                ? 'Tài khoản này không có quyền xem tài liệu'
+                : 'Không thể tải tài liệu PDF'
+        try {
+            const body = await response.json()
+            message = body.message || message
+        } catch {
+            message = `${message} (${response.status})`
+        }
+        const error = new Error(message)
+        error.status = response.status
+        throw error
+    }
+
+    return response.blob()
+}
+
 async function authApi(path = '', options = {}) {
-    return requestJson(`${API_BASE_URL}/api/auth${path}`, options)
+    return requestJson(buildApiUrl(`/api/auth${path}`), options)
 }
 
 async function api(path = '', options = {}) {
     const session = getStoredSession()
-    return requestJson(`${API_BASE_URL}/api/tests${path}`, {
+    return requestJson(buildApiUrl(`/api/tests${path}`), {
         ...options,
         headers: {
             ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
@@ -138,7 +213,7 @@ async function api(path = '', options = {}) {
 
 async function studentsApi(path = '', options = {}) {
     const session = getStoredSession()
-    return requestJson(`${API_BASE_URL}/api/students${path}`, {
+    return requestJson(buildApiUrl(`/api/students${path}`), {
         ...options,
         headers: {
             ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
@@ -149,7 +224,7 @@ async function studentsApi(path = '', options = {}) {
 
 async function materialsApi(path = '', options = {}) {
     const session = getStoredSession()
-    return requestJson(`${API_BASE_URL}/api/materials${path}`, {
+    return requestJson(buildApiUrl(`/api/materials${path}`), {
         ...options,
         headers: {
             ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
@@ -158,9 +233,21 @@ async function materialsApi(path = '', options = {}) {
     })
 }
 
+async function materialFileApi(materialId, options = {}) {
+    const session = getStoredSession()
+    return requestBlob(buildApiUrl(`/api/materials/${encodeURIComponent(materialId)}/file`), {
+        ...options,
+        headers: {
+            Accept: 'application/pdf',
+            ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
+            ...options.headers,
+        },
+    })
+}
+
 async function onlineClassApi(path = '', options = {}) {
     const session = getStoredSession()
-    return requestJson(`${API_BASE_URL}/api/online-class${path}`, {
+    return requestJson(buildApiUrl(`/api/online-class${path}`), {
         ...options,
         headers: {
             ...(session?.accessToken ? { Authorization: `Bearer ${session.accessToken}` } : {}),
@@ -615,6 +702,17 @@ function App() {
         }, 0)
         return () => window.clearTimeout(initialLoad)
     }, [auth, loadOnlineClassData, loadStudents, loadTests])
+
+    useEffect(() => {
+        if (!auth) return undefined
+
+        const interval = window.setInterval(() => {
+            loadOnlineClass()
+            loadChatMessages()
+        }, 6000)
+
+        return () => window.clearInterval(interval)
+    }, [auth, loadChatMessages, loadOnlineClass])
 
     useEffect(() => {
         if (!studentTest || !monitoringSessionId || result || monitoringStatus !== 'active') return undefined
@@ -2538,14 +2636,73 @@ function MaterialLibrary({ canManage = false, materials, onDeleteMaterial }) {
                             )}
                         </div>
                     </div>
-                    <iframe
-                        className="pdf-viewer"
-                        src={selectedMaterial.dataUrl}
-                        title={selectedMaterial.title}
-                    />
+                    <PdfPreview material={selectedMaterial} />
                 </div>
             </div>
         </section>
+    )
+}
+
+function PdfPreview({ material }) {
+    const [pdfUrl, setPdfUrl] = useState('')
+    const [previewError, setPreviewError] = useState('')
+
+    useEffect(() => {
+        if (!material?.id) return undefined
+
+        let isActive = true
+        let objectUrl = ''
+
+        async function loadPdf() {
+            setPdfUrl('')
+            setPreviewError('')
+
+            try {
+                const blob = await materialFileApi(material.id)
+                objectUrl = URL.createObjectURL(blob)
+            } catch (err) {
+                if (!material.dataUrl) {
+                    if (isActive) setPreviewError(err.message)
+                    return
+                }
+
+                try {
+                    objectUrl = URL.createObjectURL(dataUrlToBlob(material.dataUrl))
+                } catch {
+                    if (isActive) setPreviewError('Không thể mở trực tiếp tài liệu PDF này')
+                    return
+                }
+            }
+
+            if (isActive) {
+                setPdfUrl(objectUrl)
+            } else if (objectUrl) {
+                URL.revokeObjectURL(objectUrl)
+            }
+        }
+
+        loadPdf()
+
+        return () => {
+            isActive = false
+            if (objectUrl) URL.revokeObjectURL(objectUrl)
+        }
+    }, [material])
+
+    return (
+        <div className="pdf-viewer">
+            {pdfUrl ? (
+                <iframe
+                    className="pdf-viewer-frame"
+                    src={pdfUrl}
+                    title={material.title}
+                />
+            ) : (
+                <div className="pdf-viewer-state">
+                    {previewError || 'Đang mở tài liệu PDF...'}
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -2624,6 +2781,7 @@ function OnlineClassPanel({
                 <div className="online-main-column">
                     <MeetingDevicePanel
                         auth={auth}
+                        canManage={canManage}
                         onRealtimeEvent={onRealtimeEvent}
                         onlineClass={onlineClass}
                     />
@@ -2651,28 +2809,47 @@ function OnlineClassPanel({
     )
 }
 
-function MeetingDevicePanel({ auth, onRealtimeEvent, onlineClass }) {
+function MeetingDevicePanel({ auth, canManage = false, onRealtimeEvent, onlineClass }) {
+    const roomRef = useRef(null)
     const localVideoRef = useRef(null)
     const streamRef = useRef(null)
     const socketRef = useRef(null)
+    const reconnectTimerRef = useRef(null)
+    const reconnectAttemptRef = useRef(0)
     const peerConnectionsRef = useRef(new Map())
     const connectionIdRef = useRef('')
     const realtimeHandlerRef = useRef(onRealtimeEvent)
+    const isJoinedRef = useRef(false)
+    const [isJoined, setIsJoined] = useState(false)
     const [cameraOn, setCameraOn] = useState(false)
     const [micOn, setMicOn] = useState(false)
     const [mediaError, setMediaError] = useState('')
     const [socketStatus, setSocketStatus] = useState('Đang kết nối')
     const [peers, setPeers] = useState({})
+    const canJoinRoom = onlineClass.isLive || canManage
 
     useEffect(() => {
         realtimeHandlerRef.current = onRealtimeEvent
     }, [onRealtimeEvent])
 
-    const sendSignal = useCallback((type, targetConnectionId, payload) => {
+    useEffect(() => {
+        isJoinedRef.current = isJoined
+    }, [isJoined])
+
+    const sendSocketMessage = useCallback((message) => {
         const socket = socketRef.current
-        if (!socket || socket.readyState !== WebSocket.OPEN) return
-        socket.send(JSON.stringify({ type, targetConnectionId, payload }))
+        if (!socket || socket.readyState !== WebSocket.OPEN) return false
+        socket.send(JSON.stringify(message))
+        return true
     }, [])
+
+    const sendRoomPresence = useCallback((type) => {
+        sendSocketMessage({ type })
+    }, [sendSocketMessage])
+
+    const sendSignal = useCallback((type, targetConnectionId, payload) => {
+        sendSocketMessage({ type, targetConnectionId, payload })
+    }, [sendSocketMessage])
 
     const upsertPeer = useCallback((connectionId, patch) => {
         setPeers((current) => ({
@@ -2702,6 +2879,12 @@ function MeetingDevicePanel({ auth, onRealtimeEvent, onlineClass }) {
         })
     }, [])
 
+    const closePeerConnections = useCallback(() => {
+        peerConnectionsRef.current.forEach((peerConnection) => peerConnection.close())
+        peerConnectionsRef.current.clear()
+        setPeers({})
+    }, [])
+
     const createAndSendOffer = useCallback(async (connectionId) => {
         const peerConnection = peerConnectionsRef.current.get(connectionId)
         if (!peerConnection) return
@@ -2711,7 +2894,7 @@ function MeetingDevicePanel({ auth, onRealtimeEvent, onlineClass }) {
     }, [sendSignal])
 
     const createPeerConnection = useCallback((peer, shouldOffer = false) => {
-        if (!peer?.connectionId || peer.connectionId === connectionIdRef.current) return null
+        if (!isJoinedRef.current || !peer?.connectionId || peer.connectionId === connectionIdRef.current) return null
         const existing = peerConnectionsRef.current.get(peer.connectionId)
         if (existing) {
             upsertPeer(peer.connectionId, peer)
@@ -2719,7 +2902,7 @@ function MeetingDevicePanel({ auth, onRealtimeEvent, onlineClass }) {
         }
 
         const peerConnection = new RTCPeerConnection({
-            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+            iceServers: RTC_ICE_SERVERS,
         })
 
         if (streamRef.current) {
@@ -2779,98 +2962,144 @@ function MeetingDevicePanel({ auth, onRealtimeEvent, onlineClass }) {
         })
     }, [])
 
-    useEffect(() => () => {
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => track.stop())
-        }
-        peerConnectionsRef.current.forEach((peerConnection) => peerConnection.close())
-        socketRef.current?.close()
-    }, [])
-
     useEffect(() => {
         if (!auth?.accessToken) return undefined
 
-        const socket = new WebSocket(getOnlineClassSocketUrl(auth))
-        socketRef.current = socket
-        const peerConnections = peerConnectionsRef.current
+        let disposed = false
 
-        socket.onopen = () => setSocketStatus('Realtime đã kết nối')
-        socket.onclose = () => setSocketStatus('Realtime đã ngắt')
-        socket.onerror = () => setSocketStatus('Realtime lỗi kết nối')
-
-        socket.onmessage = async (event) => {
-            const message = JSON.parse(event.data)
-            const { type, payload } = message
-
-            if ([
-                'materials-updated',
-                'online-class-updated',
-                'whiteboard-updated',
-                'whiteboard-snapshots-updated',
-                'chat-message',
-                'chat-cleared',
-            ].includes(type)) {
-                realtimeHandlerRef.current?.(type, payload)
-                return
+        function clearReconnectTimer() {
+            if (reconnectTimerRef.current) {
+                window.clearTimeout(reconnectTimerRef.current)
+                reconnectTimerRef.current = null
             }
+        }
 
-            if (type === 'connected') {
-                connectionIdRef.current = payload.connectionId
-                payload.peers?.forEach((peer) => createPeerConnection(peer, true))
-                return
-            }
+        function scheduleReconnect() {
+            if (disposed) return
+            clearReconnectTimer()
+            const delay = Math.min(1200 * 2 ** reconnectAttemptRef.current, 10000)
+            reconnectAttemptRef.current += 1
+            reconnectTimerRef.current = window.setTimeout(connectSocket, delay)
+        }
 
-            if (type === 'peer-joined') {
-                createPeerConnection(payload, true)
-                return
-            }
+        function connectSocket() {
+            if (disposed) return
 
-            if (type === 'peer-left') {
-                removePeer(payload.connectionId)
-                return
-            }
+            const socketUrl = getOnlineClassSocketUrl(auth)
+            if (!socketUrl) return
 
-            if (type === 'offer') {
-                const peer = {
-                    connectionId: payload.fromConnectionId,
-                    displayName: payload.fromDisplayName,
-                    role: 'User',
+            setSocketStatus('Đang kết nối realtime')
+            const socket = new WebSocket(socketUrl)
+            socketRef.current = socket
+
+            socket.onopen = () => {
+                reconnectAttemptRef.current = 0
+                setSocketStatus('Realtime đã kết nối')
+                if (isJoinedRef.current) {
+                    sendRoomPresence('join-room')
                 }
-                const peerConnection = createPeerConnection(peer, false)
-                if (!peerConnection) return
-                await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
-                const answer = await peerConnection.createAnswer()
-                await peerConnection.setLocalDescription(answer)
-                sendSignal('answer', peer.connectionId, answer)
-                return
             }
 
-            if (type === 'answer') {
-                const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
-                if (peerConnection) {
+            socket.onclose = () => {
+                if (socketRef.current === socket) {
+                    socketRef.current = null
+                }
+                closePeerConnections()
+                setSocketStatus('Realtime đã ngắt, đang thử nối lại')
+                scheduleReconnect()
+            }
+
+            socket.onerror = () => {
+                setSocketStatus('Realtime lỗi kết nối')
+            }
+
+            socket.onmessage = async (event) => {
+                let message
+                try {
+                    message = JSON.parse(event.data)
+                } catch {
+                    return
+                }
+
+                const { type, payload } = message
+
+                if ([
+                    'materials-updated',
+                    'online-class-updated',
+                    'whiteboard-updated',
+                    'whiteboard-snapshots-updated',
+                    'chat-message',
+                    'chat-cleared',
+                ].includes(type)) {
+                    realtimeHandlerRef.current?.(type, payload)
+                    return
+                }
+
+                if (type === 'connected') {
+                    connectionIdRef.current = payload.connectionId
+                    return
+                }
+
+                if (type === 'meeting-peers') {
+                    if (!isJoinedRef.current) return
+                    payload.peers?.forEach((peer) => createPeerConnection(peer, false))
+                    return
+                }
+
+                if (type === 'peer-joined') {
+                    if (isJoinedRef.current) createPeerConnection(payload, true)
+                    return
+                }
+
+                if (type === 'peer-left') {
+                    removePeer(payload.connectionId)
+                    return
+                }
+
+                if (!isJoinedRef.current) return
+
+                if (type === 'offer') {
+                    const peer = {
+                        connectionId: payload.fromConnectionId,
+                        displayName: payload.fromDisplayName,
+                        role: payload.fromRole || 'User',
+                    }
+                    const peerConnection = createPeerConnection(peer, false)
+                    if (!peerConnection) return
                     await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
+                    const answer = await peerConnection.createAnswer()
+                    await peerConnection.setLocalDescription(answer)
+                    sendSignal('answer', peer.connectionId, answer)
+                    return
                 }
-                return
-            }
 
-            if (type === 'ice-candidate') {
-                const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
-                if (peerConnection && payload.payload) {
-                    await peerConnection.addIceCandidate(new RTCIceCandidate(payload.payload))
+                if (type === 'answer') {
+                    const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
+                    if (peerConnection) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
+                    }
+                    return
+                }
+
+                if (type === 'ice-candidate') {
+                    const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
+                    if (peerConnection && payload.payload) {
+                        await peerConnection.addIceCandidate(new RTCIceCandidate(payload.payload))
+                    }
                 }
             }
         }
+
+        connectSocket()
 
         return () => {
-            socket.close()
-            if (socketRef.current === socket) {
-                socketRef.current = null
-            }
-            peerConnections.forEach((peerConnection) => peerConnection.close())
-            peerConnections.clear()
-            setPeers({})
+            disposed = true
+            clearReconnectTimer()
+            socketRef.current?.close()
+            socketRef.current = null
+            closePeerConnections()
         }
-    }, [auth, createPeerConnection, removePeer, sendSignal])
+    }, [auth, closePeerConnections, createPeerConnection, removePeer, sendRoomPresence, sendSignal])
 
     async function startMedia() {
         if (!navigator.mediaDevices?.getUserMedia) {
@@ -2916,7 +3145,7 @@ function MeetingDevicePanel({ auth, onRealtimeEvent, onlineClass }) {
         await renegotiatePeers()
     }
 
-    async function stopMedia() {
+    async function stopMedia({ renegotiate = true } = {}) {
         if (streamRef.current) {
             streamRef.current.getTracks().forEach((track) => track.stop())
         }
@@ -2931,45 +3160,97 @@ function MeetingDevicePanel({ auth, onRealtimeEvent, onlineClass }) {
         })
         setCameraOn(false)
         setMicOn(false)
-        await renegotiatePeers()
+        if (renegotiate) {
+            await renegotiatePeers()
+        }
+    }
+
+    async function joinRoom() {
+        if (!canJoinRoom) return
+
+        isJoinedRef.current = true
+        setIsJoined(true)
+        setMediaError('')
+        sendRoomPresence('join-room')
+
+        try {
+            await enterExamFullscreen(roomRef.current)
+        } catch {
+            setMediaError('Trình duyệt không cho bật toàn màn hình, phòng vẫn mở trong cửa sổ.')
+        }
+
+        await startMedia()
+    }
+
+    async function leaveRoom() {
+        isJoinedRef.current = false
+        sendRoomPresence('leave-room')
+        setIsJoined(false)
+        await stopMedia({ renegotiate: false })
+        closePeerConnections()
+        await exitExamFullscreen()
     }
 
     const peerList = Object.values(peers)
 
     return (
-        <section className="meeting-panel admin-panel">
-            <div className="panel-title">
-                <h2>Phòng video</h2>
+        <section className={`meeting-panel admin-panel ${isJoined ? 'in-room' : ''}`} ref={roomRef}>
+            <div className="panel-title meeting-room-head">
+                <div>
+                    <h2>{isJoined ? onlineClass.title : 'Phòng học trực tuyến'}</h2>
+                    {isJoined && <span>{socketStatus} · {peerList.length} người khác</span>}
+                </div>
                 <span className={onlineClass.isLive ? 'status-chip' : 'status-chip warning'}>
                     {onlineClass.isLive ? 'Lớp đang mở' : 'Lớp chưa mở'}
                 </span>
             </div>
-            <div className="meeting-status-row">
-                <span>{socketStatus}</span>
-                <span>{peerList.length} người khác</span>
-            </div>
-            <div className="video-grid">
-                <div className="video-tile local">
-                    <video autoPlay muted playsInline ref={localVideoRef} />
-                    {!cameraOn && <span>Camera đang tắt</span>}
-                    <strong>{auth?.displayName || auth?.username || 'Bạn'} · Bạn</strong>
-                </div>
-                {peerList.map((peer) => (
-                    <RemoteVideoTile key={peer.connectionId} peer={peer} />
-                ))}
-            </div>
-            {mediaError && <p className="field-hint danger-text">{mediaError}</p>}
-            <div className="media-controls">
-                <button className={cameraOn ? 'primary-button' : 'ghost-button'} onClick={toggleCamera} type="button">
-                    {cameraOn ? 'Tắt cam' : 'Bật cam'}
-                </button>
-                <button className={micOn ? 'primary-button' : 'ghost-button'} onClick={toggleMicrophone} type="button">
-                    {micOn ? 'Tắt micro' : 'Bật micro'}
-                </button>
-                <button className="ghost-button" onClick={stopMedia} type="button">
-                    Dừng thiết bị
-                </button>
-            </div>
+
+            {!isJoined ? (
+                <>
+                    <div className="meeting-status-row">
+                        <span>{socketStatus}</span>
+                        <span>{peerList.length} người đang trong phòng</span>
+                    </div>
+                    <div className="meeting-lobby">
+                        <div>
+                            <strong>{onlineClass.title}</strong>
+                            <p>{onlineClass.agenda || 'Chưa có nội dung buổi học'}</p>
+                        </div>
+                        <button className="primary-button" disabled={!canJoinRoom} onClick={joinRoom} type="button">
+                            {canJoinRoom ? 'Tham gia lớp học' : 'Chờ admin mở lớp'}
+                        </button>
+                    </div>
+                    {mediaError && <p className="field-hint danger-text">{mediaError}</p>}
+                </>
+            ) : (
+                <>
+                    <div className="video-grid">
+                        <div className="video-tile local">
+                            <video autoPlay muted playsInline ref={localVideoRef} />
+                            {!cameraOn && <span>Camera đang tắt</span>}
+                            <strong>{auth?.displayName || auth?.username || 'Bạn'} · Bạn</strong>
+                        </div>
+                        {peerList.map((peer) => (
+                            <RemoteVideoTile key={peer.connectionId} peer={peer} />
+                        ))}
+                    </div>
+                    {mediaError && <p className="field-hint danger-text">{mediaError}</p>}
+                    <div className="media-controls">
+                        <button className={cameraOn ? 'primary-button' : 'ghost-button'} onClick={toggleCamera} type="button">
+                            {cameraOn ? 'Tắt cam' : 'Bật cam'}
+                        </button>
+                        <button className={micOn ? 'primary-button' : 'ghost-button'} onClick={toggleMicrophone} type="button">
+                            {micOn ? 'Tắt micro' : 'Bật micro'}
+                        </button>
+                        <button className="ghost-button" onClick={() => stopMedia()} type="button">
+                            Dừng thiết bị
+                        </button>
+                        <button className="delete-button outline" onClick={leaveRoom} type="button">
+                            Rời phòng
+                        </button>
+                    </div>
+                </>
+            )}
         </section>
     )
 }

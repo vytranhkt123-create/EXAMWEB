@@ -8,10 +8,18 @@ namespace ExamWeb.Application.DTO.OnlineClass
         public string FileName { get; set; } = string.Empty;
         public string ContentType { get; set; } = string.Empty;
         public long FileSize { get; set; }
+        public string FileUrl { get; set; } = string.Empty;
         public string DataUrl { get; set; } = string.Empty;
         public int? CreatedByAccountId { get; set; }
         public string CreatedByName { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
+    }
+
+    public class MaterialFileDto
+    {
+        public string FileName { get; set; } = string.Empty;
+        public string ContentType { get; set; } = string.Empty;
+        public byte[] Content { get; set; } = Array.Empty<byte>();
     }
 
     public class CreateMaterialRequest

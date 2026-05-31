@@ -35,6 +35,25 @@ namespace ExamWeb.Infrastructure.Services
             return materials.Select(MapMaterial).ToList();
         }
 
+        public async Task<MaterialFileDto?> GetMaterialFileAsync(string materialId, CancellationToken cancellationToken = default)
+        {
+            var material = await _dbContext.ClassMaterials
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x => x.Id == materialId, cancellationToken);
+
+            if (material == null)
+            {
+                return null;
+            }
+
+            return new MaterialFileDto
+            {
+                FileName = material.FileName,
+                ContentType = material.ContentType,
+                Content = material.Content
+            };
+        }
+
         public async Task<MaterialDto> CreateMaterialAsync(CreateMaterialRequest request, CancellationToken cancellationToken = default)
         {
             RequireAdmin();
@@ -313,6 +332,7 @@ namespace ExamWeb.Infrastructure.Services
                 FileName = material.FileName,
                 ContentType = material.ContentType,
                 FileSize = material.FileSize,
+                FileUrl = $"/api/materials/{material.Id}/file",
                 DataUrl = $"data:{material.ContentType};base64,{Convert.ToBase64String(material.Content)}",
                 CreatedByAccountId = material.CreatedByAccountId,
                 CreatedByName = material.CreatedByName,

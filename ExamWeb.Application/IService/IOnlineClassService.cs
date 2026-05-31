@@ -5,6 +5,7 @@ namespace ExamWeb.Application.IService
     public interface IOnlineClassService
     {
         Task<IReadOnlyList<MaterialDto>> GetMaterialsAsync(CancellationToken cancellationToken = default);
+        Task<MaterialFileDto?> GetMaterialFileAsync(string materialId, CancellationToken cancellationToken = default);
         Task<MaterialDto> CreateMaterialAsync(CreateMaterialRequest request, CancellationToken cancellationToken = default);
         Task<bool> DeleteMaterialAsync(string materialId, CancellationToken cancellationToken = default);
 

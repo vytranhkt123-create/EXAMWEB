@@ -35,12 +35,8 @@ namespace ExamWeb.Server.Services
                 context.User.FindFirstValue(ClaimTypes.Role) ?? context.User.FindFirstValue("role") ?? "User");
 
             var peers = _connections.Values
-                .Select(x => new
-                {
-                    connectionId = x.ConnectionId,
-                    displayName = x.DisplayName,
-                    role = x.Role
-                })
+                .Where(x => x.IsInMeeting)
+                .Select(CreatePeerPayload)
                 .ToList();
 
             _connections[connection.ConnectionId] = connection;
@@ -51,13 +47,6 @@ namespace ExamWeb.Server.Services
                 peers
             });
 
-            await BroadcastAsync("peer-joined", new
-            {
-                connectionId = connection.ConnectionId,
-                displayName = connection.DisplayName,
-                role = connection.Role
-            }, exceptConnectionId: connection.ConnectionId);
-
             try
             {
                 await ReceiveLoopAsync(connection);
@@ -65,7 +54,10 @@ namespace ExamWeb.Server.Services
             finally
             {
                 _connections.TryRemove(connection.ConnectionId, out _);
-                await BroadcastAsync("peer-left", new { connectionId = connection.ConnectionId });
+                if (connection.IsInMeeting)
+                {
+                    await BroadcastToMeetingAsync("peer-left", new { connectionId = connection.ConnectionId });
+                }
             }
         }
 
@@ -136,6 +128,18 @@ namespace ExamWeb.Server.Services
                     return;
                 }
 
+                if (type == "join-room")
+                {
+                    await JoinMeetingAsync(connection);
+                    return;
+                }
+
+                if (type == "leave-room")
+                {
+                    await LeaveMeetingAsync(connection);
+                    return;
+                }
+
                 if (!document.RootElement.TryGetProperty("targetConnectionId", out var targetElement))
                 {
                     return;
@@ -158,9 +162,42 @@ namespace ExamWeb.Server.Services
                 {
                     fromConnectionId = connection.ConnectionId,
                     fromDisplayName = connection.DisplayName,
+                    fromRole = connection.Role,
                     payload
                 });
             }
+        }
+
+        private async Task JoinMeetingAsync(OnlineClassSocketConnection connection)
+        {
+            var wasInMeeting = connection.IsInMeeting;
+            var peers = _connections.Values
+                .Where(x => x.IsInMeeting && x.ConnectionId != connection.ConnectionId)
+                .Select(CreatePeerPayload)
+                .ToList();
+
+            connection.IsInMeeting = true;
+
+            await SendAsync(connection, "meeting-peers", new { peers });
+
+            if (!wasInMeeting)
+            {
+                await BroadcastToMeetingAsync(
+                    "peer-joined",
+                    CreatePeerPayload(connection),
+                    exceptConnectionId: connection.ConnectionId);
+            }
+        }
+
+        private async Task LeaveMeetingAsync(OnlineClassSocketConnection connection)
+        {
+            if (!connection.IsInMeeting)
+            {
+                return;
+            }
+
+            connection.IsInMeeting = false;
+            await BroadcastToMeetingAsync("peer-left", new { connectionId = connection.ConnectionId });
         }
 
         private async Task BroadcastAsync(
@@ -169,20 +206,44 @@ namespace ExamWeb.Server.Services
             string? exceptConnectionId,
             CancellationToken cancellationToken = default)
         {
-            var staleConnections = new List<string>();
-            var sendTasks = _connections.Values
-                .Where(x => x.ConnectionId != exceptConnectionId)
-                .Select(async connection =>
+            await SendToConnectionsAsync(
+                _connections.Values.Where(x => x.ConnectionId != exceptConnectionId),
+                eventType,
+                payload,
+                cancellationToken);
+        }
+
+        private Task BroadcastToMeetingAsync(
+            string eventType,
+            object? payload,
+            string? exceptConnectionId = null,
+            CancellationToken cancellationToken = default)
+        {
+            return SendToConnectionsAsync(
+                _connections.Values.Where(x => x.IsInMeeting && x.ConnectionId != exceptConnectionId),
+                eventType,
+                payload,
+                cancellationToken);
+        }
+
+        private async Task SendToConnectionsAsync(
+            IEnumerable<OnlineClassSocketConnection> connections,
+            string eventType,
+            object? payload,
+            CancellationToken cancellationToken = default)
+        {
+            var staleConnections = new ConcurrentBag<string>();
+            var sendTasks = connections.Select(async connection =>
+            {
+                try
                 {
-                    try
-                    {
-                        await SendAsync(connection, eventType, payload, cancellationToken);
-                    }
-                    catch
-                    {
-                        staleConnections.Add(connection.ConnectionId);
-                    }
-                });
+                    await SendAsync(connection, eventType, payload, cancellationToken);
+                }
+                catch
+                {
+                    staleConnections.Add(connection.ConnectionId);
+                }
+            });
 
             await Task.WhenAll(sendTasks);
 
@@ -225,6 +286,16 @@ namespace ExamWeb.Server.Services
             }
         }
 
+        private static object CreatePeerPayload(OnlineClassSocketConnection connection)
+        {
+            return new
+            {
+                connectionId = connection.ConnectionId,
+                displayName = connection.DisplayName,
+                role = connection.Role
+            };
+        }
+
         private sealed class OnlineClassSocketConnection
         {
             public OnlineClassSocketConnection(
@@ -246,6 +317,7 @@ namespace ExamWeb.Server.Services
             public string? AccountId { get; }
             public string DisplayName { get; }
             public string Role { get; }
+            public bool IsInMeeting { get; set; }
             public SemaphoreSlim SendLock { get; } = new(1, 1);
         }
     }
