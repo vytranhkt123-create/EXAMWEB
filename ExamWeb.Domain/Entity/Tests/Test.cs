@@ -1,0 +1,71 @@
+﻿using ExamWeb.Domain.DomainExceptions;
+using ExamWeb.Domain.Entity.Questions;
+
+namespace ExamWeb.Domain.Entity.Tests
+{
+    public class Test
+    {
+        protected Test() { }
+        public string Id { get; private set; } = string.Empty;
+        public string TestName { get; private set; } = string.Empty;
+        public int DurationMinutes { get; private set; } = 30;
+        public int QuestionCount { get; private set; } = 0;
+        public decimal ScoreTotal { get; private set; } = 0;
+        public DateTime CreatedAt { get; private set; }
+
+        private readonly List<Question> _questions = new();
+        public IReadOnlyCollection<Question> Questions => _questions.AsReadOnly();
+
+        public Test(string testName, int durationMinutes = 30)
+        {
+            Id = "Test_" + Guid.NewGuid().ToString("N");
+            ChangeTestName(testName);
+            ChangeDurationMinutes(durationMinutes);
+            ChangeScoreTotal();
+            CreatedAt = DateTime.UtcNow;
+        }
+        public void ChangeTestName(string testName)
+        {
+            if (string.IsNullOrWhiteSpace(testName)) throw new DomainException("Tên đề thi không được bỏ trống");
+            TestName = testName;
+        }
+        public void ChangeDurationMinutes(int durationMinutes)
+        {
+            if (durationMinutes < 1 || durationMinutes > 240)
+                throw new DomainException("Thời gian làm bài phải từ 1 đến 240 phút");
+            DurationMinutes = durationMinutes;
+        }
+        public void ChangeScoreTotal()
+        {
+            ScoreTotal = _questions.Sum(q => q.Score);
+        }
+        public void ChangeQuestionCount()
+        {
+            QuestionCount = _questions.Count;
+        }
+        public Question AddQuestion(string content, decimal score)
+        {
+            var question = new Question(Id, content, score);
+            _questions.Add(question);
+            ChangeScoreTotal();
+            ChangeQuestionCount();
+            return question;
+        }
+        public void DeleteQuestion(string questionId)
+        {
+            if (string.IsNullOrWhiteSpace(questionId))
+                throw new DomainException("Id câu hỏi không được bỏ trống");
+            var question = _questions.FirstOrDefault(q => q.Id == questionId);
+            if (question == null)
+                throw new DomainException("Không tìm thấy câu hỏi");
+            _questions.Remove(question);
+            ChangeScoreTotal();
+            ChangeQuestionCount();
+        }
+        public void UpdateTestSummary()
+        {
+            ChangeQuestionCount();
+            ChangeScoreTotal();
+        }
+    }
+}
