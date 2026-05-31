@@ -262,6 +262,11 @@
     color: #b91c1c;
 }
 
+.status-chip.danger {
+    background: #fff1f2;
+    color: #be123c;
+}
+
 .score-badge {
     background: #eef2ff;
     color: var(--violet);
@@ -668,6 +673,11 @@ textarea:focus {
     padding: 12px;
 }
 
+.monitor-card.selected {
+    border-color: var(--violet);
+    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12);
+}
+
 .monitor-card-head {
     align-items: flex-start;
     display: flex;
@@ -728,6 +738,89 @@ textarea:focus {
     color: #64748b;
     font-size: 12px;
     font-weight: 800;
+}
+
+.monitor-event.warning span,
+.monitor-event.warning time {
+    color: #be123c;
+}
+
+.monitor-live-panel {
+    background: #0f172a;
+    border-radius: 8px;
+    color: #e5e7eb;
+    display: grid;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 14px;
+}
+
+.monitor-live-head {
+    align-items: flex-start;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.monitor-live-head h3 {
+    color: #f8fafc;
+    margin: 0 0 4px;
+}
+
+.monitor-live-head span {
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.monitor-live-alert,
+.monitor-live-empty {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    border-radius: 8px;
+    color: #cbd5e1;
+    display: grid;
+    gap: 4px;
+    margin: 0;
+    padding: 12px;
+}
+
+.monitor-live-alert {
+    border-color: rgba(251, 113, 133, 0.45);
+    color: #fecdd3;
+}
+
+.monitor-live-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.monitor-live-video {
+    aspect-ratio: 16 / 9;
+    background: #020617;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+}
+
+.monitor-live-video video {
+    height: 100%;
+    object-fit: contain;
+    width: 100%;
+}
+
+.monitor-live-video span {
+    background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.9));
+    bottom: 0;
+    color: #f8fafc;
+    font-size: 13px;
+    font-weight: 800;
+    left: 0;
+    padding: 10px 12px;
+    position: absolute;
+    right: 0;
 }
 
 .history-table-wrap {
@@ -898,120 +991,188 @@ textarea:focus {
 }
 
 .auth-shell {
-    align-items: center;
+    align-items: stretch;
     display: flex;
     justify-content: center;
-    padding: 28px;
+    min-height: 100svh;
+    padding: 0;
 }
 
-.login-layout {
-    align-items: stretch;
+.login-page {
     display: grid;
-    gap: 22px;
-    grid-template-columns: minmax(0, 1.05fr) minmax(340px, 440px);
-    max-width: 1060px;
+    grid-template-columns: minmax(0, 1.1fr) minmax(360px, 480px);
+    min-height: 100svh;
     width: 100%;
 }
 
-.login-hero,
-.login-panel {
-    border-radius: 8px;
-    box-shadow: 0 28px 60px rgba(15, 23, 42, 0.16);
-}
-
-.login-hero {
+.login-brand {
     background:
-        linear-gradient(135deg, rgba(37, 99, 235, 0.88), rgba(124, 58, 237, 0.82)),
-        linear-gradient(315deg, rgba(245, 158, 11, 0.38), transparent);
+        radial-gradient(circle at 12% 18%, rgba(245, 158, 11, 0.28), transparent 32%),
+        radial-gradient(circle at 88% 12%, rgba(52, 211, 153, 0.22), transparent 28%),
+        linear-gradient(145deg, #1e3a8a 0%, #312e81 48%, #1e40af 100%);
     color: #ffffff;
     display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    min-height: 520px;
     overflow: hidden;
-    padding: 34px;
+    padding: clamp(28px, 5vw, 56px);
+    position: relative;
 }
 
-.login-hero .eyebrow {
-    color: #bfdbfe;
+.login-brand::after {
+    background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.18));
+    content: '';
+    inset: 0;
+    pointer-events: none;
+    position: absolute;
 }
 
-.login-hero h1 {
-    font-size: clamp(40px, 7vw, 72px);
+.login-brand-inner {
+    display: grid;
+    gap: 18px;
+    max-width: 560px;
+    position: relative;
+    z-index: 1;
+}
+
+.login-logo-mark {
+    align-items: center;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08));
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 14px;
+    display: inline-flex;
+    height: 52px;
+    justify-content: center;
+    width: 52px;
+}
+
+.login-logo-mark span {
+    font-size: 26px;
+    font-weight: 900;
     line-height: 1;
-    margin: 20px 0 14px;
-    max-width: 620px;
 }
 
-.login-hero p {
-    color: #e0ecff;
-    font-size: 18px;
-    font-weight: 700;
-    line-height: 1.55;
+.login-brand-eyebrow {
+    color: #bfdbfe;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
     margin: 0;
-    max-width: 620px;
+    text-transform: uppercase;
 }
 
-.role-preview-list {
+.login-brand-title {
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 900;
+    line-height: 1.08;
+    margin: 0;
+    max-width: 14ch;
+}
+
+.login-brand-lead {
+    color: #dbeafe;
+    font-size: clamp(15px, 2vw, 18px);
+    font-weight: 600;
+    line-height: 1.6;
+    margin: 0;
+    max-width: 42ch;
+}
+
+.login-illustration {
+    display: block;
+    margin: 8px 0 4px;
+    max-width: 100%;
+    width: min(100%, 420px);
+}
+
+.login-feature-list {
     display: grid;
     gap: 10px;
-    margin-top: 32px;
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
 }
 
-.role-preview-list div {
-    background: rgba(255, 255, 255, 0.14);
-    border: 1px solid rgba(255, 255, 255, 0.24);
-    border-radius: 8px;
+.login-feature-list li {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 10px;
     display: grid;
     gap: 4px;
-    padding: 13px 14px;
+    padding: 12px 14px;
 }
 
-.role-preview-list span {
+.login-feature-list strong {
+    font-size: 15px;
+}
+
+.login-feature-list span {
     color: #dbeafe;
-    font-size: 12px;
-    font-weight: 900;
-    text-transform: uppercase;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.45;
 }
 
-.role-preview-list strong {
-    color: #ffffff;
-    font-size: 16px;
-}
-
-.login-panel {
-    background: rgba(255, 255, 255, 0.94);
-    border: 1px solid rgba(255, 255, 255, 0.86);
+.login-form-panel {
+    align-items: center;
+    background: #f6f8fd;
     display: flex;
-    flex-direction: column;
     justify-content: center;
-    padding: 30px;
+    padding: clamp(24px, 4vw, 48px);
 }
 
-.login-panel-head {
+.login-form-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.08);
+    max-width: 420px;
+    padding: clamp(28px, 4vw, 36px);
+    width: 100%;
+}
+
+.login-form-header {
     display: grid;
     gap: 8px;
-    margin-bottom: 22px;
+    margin-bottom: 24px;
 }
 
-.login-panel h2 {
+.login-form-header h2 {
     color: #111827;
-    font-size: 34px;
-    line-height: 1.1;
+    font-size: clamp(26px, 4vw, 32px);
+    font-weight: 900;
+    line-height: 1.15;
     margin: 0;
 }
 
-.login-badge {
-    background: #fff7ed;
-    border: 1px solid #fed7aa;
-    border-radius: 999px;
-    color: #c2410c;
-    display: inline-flex;
-    font-size: 12px;
-    font-weight: 900;
-    justify-self: start;
-    padding: 7px 10px;
-    text-transform: uppercase;
+.login-form-header p {
+    color: var(--muted);
+    font-size: 15px;
+    font-weight: 600;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.login-password-row {
+    align-items: baseline;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+}
+
+.login-password-row label {
+    margin-bottom: 0;
+}
+
+.login-forgot-link {
+    color: var(--blue);
+    font-size: 13px;
+    font-weight: 800;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.login-forgot-link:hover {
+    color: var(--violet);
+    text-decoration: underline;
 }
 
 .login-alert {
@@ -1021,12 +1182,40 @@ textarea:focus {
 
 .login-form {
     display: grid;
-    gap: 16px;
+    gap: 18px;
 }
 
 .login-submit {
     margin-top: 4px;
     min-height: 48px;
+}
+
+.login-form-footer {
+    border-top: 1px solid #e2e8f0;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+    margin: 22px 0 0;
+    padding-top: 18px;
+    text-align: center;
+}
+
+.theme-dark .login-form-panel {
+    background: #0b1120;
+}
+
+.theme-dark .login-form-card {
+    background: rgba(15, 23, 42, 0.94);
+    border-color: rgba(148, 163, 184, 0.24);
+}
+
+.theme-dark .login-form-header h2 {
+    color: #f8fafc;
+}
+
+.theme-dark .login-form-footer {
+    border-color: rgba(148, 163, 184, 0.24);
 }
 
 .student-profile-card {
@@ -1328,6 +1517,11 @@ textarea:focus {
     color: #be123c;
 }
 
+.monitor-pill.starting {
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
 .fullscreen-warning {
     align-items: center;
     background: #fff7ed;
@@ -1357,6 +1551,26 @@ textarea:focus {
 .exam-alert {
     margin: 12px 20px 0;
     max-width: none;
+}
+
+.exam-monitor-blocker {
+    align-items: center;
+    background: #eff6ff;
+    border-bottom: 1px solid #bfdbfe;
+    color: #1e3a8a;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 12px 20px;
+}
+
+.exam-monitor-blocker strong {
+    font-size: 14px;
+}
+
+.exam-monitor-blocker span {
+    font-size: 13px;
+    font-weight: 700;
 }
 
 .monitor-note {
@@ -1898,7 +2112,7 @@ textarea:focus {
 .theme-dark .side-panel,
 .theme-dark .work-panel,
 .theme-dark .admin-panel,
-.theme-dark .login-panel,
+.theme-dark .login-form-card,
 .theme-dark .session-card,
 .theme-dark .stat-card,
 .theme-dark .question-block,
@@ -2212,6 +2426,391 @@ textarea:focus {
     gap: 10px;
 }
 
+/* Online meet room (Google Meet / Zoom style) */
+.meet-room-shell {
+    background: #0f172a;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 12px;
+    color: #e5e7eb;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    min-height: min(78svh, 820px);
+    overflow: hidden;
+}
+
+.meet-room-shell--active {
+    min-height: min(92svh, 960px);
+}
+
+.meet-room-shell--active:fullscreen,
+.meet-room-shell--active:-webkit-full-screen {
+    border-radius: 0;
+    min-height: 100svh;
+}
+
+.meet-room-shell--lobby {
+    background: linear-gradient(160deg, #0f172a 0%, #1e293b 55%, #0f172a 100%);
+    min-height: auto;
+    padding: 20px;
+}
+
+.meet-room-header {
+    align-items: flex-start;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    display: flex;
+    gap: 16px;
+    justify-content: space-between;
+    padding: 16px 20px;
+}
+
+.meet-room-eyebrow {
+    color: #93c5fd;
+    font-size: 12px;
+    font-weight: 800;
+    margin: 0 0 4px;
+    text-transform: uppercase;
+}
+
+.meet-room-header h2 {
+    color: #f8fafc;
+    font-size: clamp(20px, 3vw, 28px);
+    margin: 0 0 6px;
+}
+
+.meet-room-meta,
+.meet-room-lead,
+.meet-room-status {
+    color: #94a3b8;
+    font-size: 14px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.meet-room-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+}
+
+.meet-room-body--sidebar {
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+}
+
+.meet-room-stage {
+    display: grid;
+    gap: 10px;
+    min-height: 0;
+    padding: 14px;
+}
+
+.meet-room-alert {
+    background: rgba(190, 18, 60, 0.15);
+    border: 1px solid rgba(251, 113, 133, 0.35);
+    border-radius: 8px;
+    color: #fecdd3;
+    font-size: 14px;
+    font-weight: 700;
+    margin: 0;
+    padding: 10px 12px;
+}
+
+.meet-room-empty,
+.meet-room-picker {
+    display: grid;
+    gap: 16px;
+    padding: 8px 20px 20px;
+}
+
+.meet-room-card {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(148, 163, 184, 0.22);
+    border-radius: 12px;
+    display: grid;
+    gap: 12px;
+    padding: 16px;
+}
+
+.meet-room-card h3 {
+    color: #f8fafc;
+    margin: 0;
+}
+
+.meet-room-card p {
+    color: #cbd5e1;
+    margin: 0;
+}
+
+.meet-room-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.meet-video-grid {
+    align-content: center;
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    height: 100%;
+    min-height: 360px;
+}
+
+.meet-video-grid[data-participants='1'] {
+    grid-template-columns: 1fr;
+}
+
+.meet-video-grid[data-participants='2'] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.meet-video-grid--screen {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 420px;
+}
+
+.meet-video-grid--thumbs {
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    min-height: 120px;
+}
+
+.meet-video-tile {
+    aspect-ratio: 16 / 10;
+    background: #020617;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+}
+
+.meet-video-tile--featured {
+    aspect-ratio: 16 / 9;
+    min-height: 320px;
+}
+
+.meet-video-tile video {
+    height: 100%;
+    object-fit: cover;
+    width: 100%;
+}
+
+.meet-video-tile--featured video {
+    object-fit: contain;
+}
+
+.meet-video-placeholder {
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 800;
+    inset: 0;
+    place-items: center;
+    position: absolute;
+    display: grid;
+}
+
+.meet-video-label {
+    background: linear-gradient(180deg, transparent, rgba(15, 23, 42, 0.88));
+    bottom: 0;
+    left: 0;
+    padding: 10px 12px;
+    position: absolute;
+    right: 0;
+}
+
+.meet-video-label strong {
+    color: #f8fafc;
+    font-size: 13px;
+}
+
+.meet-room-controls {
+    align-items: center;
+    background: rgba(15, 23, 42, 0.92);
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    padding: 14px 16px;
+}
+
+.meet-control-btn {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 999px;
+    color: #e5e7eb;
+    cursor: pointer;
+    display: inline-flex;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 800;
+    gap: 8px;
+    min-height: 44px;
+    padding: 0 16px;
+}
+
+.meet-control-btn--active {
+    background: rgba(37, 99, 235, 0.35);
+    border-color: rgba(96, 165, 250, 0.55);
+}
+
+.meet-control-btn--share-active {
+    background: rgba(16, 185, 129, 0.28);
+    border-color: rgba(52, 211, 153, 0.5);
+}
+
+.meet-control-btn--leave {
+    background: #be123c;
+    border-color: #be123c;
+    color: #fff;
+}
+
+.meet-control-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+
+.meet-sidebar {
+    background: rgba(15, 23, 42, 0.72);
+    border-left: 1px solid rgba(148, 163, 184, 0.18);
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 0;
+}
+
+.meet-sidebar-tabs {
+    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    display: flex;
+    gap: 6px;
+    padding: 10px;
+}
+
+.meet-sidebar-tabs button {
+    background: transparent;
+    border: 0;
+    border-radius: 8px;
+    color: #94a3b8;
+    cursor: pointer;
+    flex: 1;
+    font-family: inherit;
+    font-weight: 800;
+    min-height: 38px;
+    padding: 0 10px;
+}
+
+.meet-sidebar-tabs button.active {
+    background: rgba(37, 99, 235, 0.28);
+    color: #dbeafe;
+}
+
+.meet-sidebar-panel {
+    min-height: 0;
+    overflow: auto;
+    padding: 12px;
+}
+
+.meet-sidebar-panel--chat {
+    display: grid;
+    grid-template-rows: 1fr auto;
+}
+
+.meet-member-list {
+    display: grid;
+    gap: 8px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.meet-member-item {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 12px;
+}
+
+.meet-member-item--self {
+    background: rgba(20, 184, 166, 0.18);
+}
+
+.meet-member-item span {
+    color: #f8fafc;
+    font-weight: 800;
+}
+
+.meet-member-item small {
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+.meet-chat-list {
+    display: grid;
+    gap: 8px;
+    max-height: 100%;
+    overflow: auto;
+}
+
+.meet-chat-empty {
+    color: #94a3b8;
+    font-weight: 700;
+    margin: 0;
+    text-align: center;
+}
+
+.meet-chat-message {
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 8px;
+    display: grid;
+    gap: 6px;
+    padding: 10px;
+}
+
+.meet-chat-message header {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: space-between;
+}
+
+.meet-chat-message strong {
+    color: #f8fafc;
+    font-size: 13px;
+}
+
+.meet-chat-message time {
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+.meet-chat-message p {
+    color: #e2e8f0;
+    font-size: 14px;
+    margin: 0;
+}
+
+.meet-chat-form {
+    border-top: 1px solid rgba(148, 163, 184, 0.18);
+    display: grid;
+    gap: 8px;
+    padding-top: 10px;
+}
+
+.meet-chat-form textarea {
+    background: rgba(2, 6, 23, 0.8);
+    border-color: rgba(148, 163, 184, 0.28);
+    color: #f8fafc;
+}
+
+.meet-chat-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
 @media (max-width: 980px) {
     .app-shell {
         padding: 16px;
@@ -2268,12 +2867,25 @@ textarea:focus {
         justify-content: flex-start;
     }
 
-    .login-layout {
+    .login-page {
         grid-template-columns: 1fr;
     }
 
-    .login-hero {
-        min-height: 360px;
+    .login-brand {
+        min-height: auto;
+        padding: 28px 24px 32px;
+    }
+
+    .login-illustration {
+        display: none;
+    }
+
+    .login-feature-list {
+        gap: 8px;
+    }
+
+    .login-form-panel {
+        padding: 24px 16px 32px;
     }
 
     .admin-dashboard {
@@ -2317,5 +2929,28 @@ textarea:focus {
     .exam-fullscreen-footer {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .meet-room-body--sidebar {
+        grid-template-columns: 1fr;
+    }
+
+    .meet-sidebar {
+        border-left: 0;
+        border-top: 1px solid rgba(148, 163, 184, 0.18);
+        max-height: 360px;
+    }
+
+    .meet-room-controls {
+        justify-content: stretch;
+    }
+
+    .meet-control-btn {
+        flex: 1 1 calc(50% - 8px);
+        justify-content: center;
+    }
+
+    .meet-control-btn--leave {
+        flex-basis: 100%;
     }
 }

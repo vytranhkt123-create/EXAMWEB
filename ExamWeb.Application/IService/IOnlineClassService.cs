@@ -21,5 +21,10 @@ namespace ExamWeb.Application.IService
         Task<IReadOnlyList<ChatMessageDto>> GetChatMessagesAsync(CancellationToken cancellationToken = default);
         Task<ChatMessageDto> SendChatMessageAsync(SendChatMessageRequest request, CancellationToken cancellationToken = default);
         Task ClearChatMessagesAsync(CancellationToken cancellationToken = default);
+
+        Task<OnlineClassRoomDto> CreateRoomAsync(CreateOnlineClassRoomRequest request, CancellationToken cancellationToken = default);
+        Task<AssignClassRoomMembersResultDto> AssignRoomMembersAsync(string roomId, AssignClassRoomMembersRequest request, CancellationToken cancellationToken = default);
+        Task<IReadOnlyList<OnlineClassRoomDto>> GetAccessibleRoomsAsync(CancellationToken cancellationToken = default);
+        Task<bool> CanAccessRoomAsync(string roomId, CancellationToken cancellationToken = default);
     }
 }

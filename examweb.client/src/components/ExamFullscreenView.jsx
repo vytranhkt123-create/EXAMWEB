@@ -16,6 +16,7 @@ export function ExamFullscreenView({
     monitoringStatus,
     onReenterFullscreen,
     onReset,
+    onRestartScreenShare,
     onSelectAnswer,
     onSubmit,
     result,
@@ -49,13 +50,41 @@ export function ExamFullscreenView({
                 <div className="fullscreen-warning" role="alert">
                     <strong>⚠ Cảnh báo</strong>
                     <span>{fullscreenWarning}</span>
-                    <button className="ghost-button" onClick={onReenterFullscreen} type="button">
-                        Vào lại toàn màn hình
-                    </button>
+                    {monitoringStatus === 'stopped' ? (
+                        <button className="ghost-button" onClick={onRestartScreenShare} type="button">
+                            Bật lại chia sẻ
+                        </button>
+                    ) : (
+                        <button className="ghost-button" onClick={onReenterFullscreen} type="button">
+                            Vào lại toàn màn hình
+                        </button>
+                    )}
                 </div>
             )}
 
             {error && <div className="alert exam-alert">{error}</div>}
+
+            {isExamRunning && (!isFullscreen || monitoringStatus !== 'active') && (
+                <div className="exam-monitor-blocker" role="status">
+                    <strong>Chưa đủ điều kiện làm bài</strong>
+                    <span>
+                        {!isFullscreen
+                            ? 'Bạn cần quay lại chế độ toàn màn hình để tiếp tục chọn đáp án.'
+                            : monitoringStatus === 'stopped'
+                            ? 'Bạn cần bật lại chia sẻ màn hình để tiếp tục chọn đáp án.'
+                            : 'Hệ thống đang kết nối giám sát màn hình.'}
+                    </span>
+                    {!isFullscreen ? (
+                        <button className="primary-button" onClick={onReenterFullscreen} type="button">
+                            Vào lại toàn màn hình
+                        </button>
+                    ) : monitoringStatus === 'stopped' && (
+                        <button className="primary-button" onClick={onRestartScreenShare} type="button">
+                            Bật lại chia sẻ màn hình
+                        </button>
+                    )}
+                </div>
+            )}
 
             <main className="exam-fullscreen-body">
                 {studentTest.questions.length === 0 ? (
@@ -142,6 +171,7 @@ function getMonitorStatusText(status) {
     const labels = {
         active: 'Đang theo dõi',
         idle: 'Chưa bật',
+        starting: 'Đang kết nối',
         stopped: 'Đã dừng chia sẻ',
         submitted: 'Đã nộp bài',
     }

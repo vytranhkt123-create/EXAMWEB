@@ -239,6 +239,198 @@ namespace ExamWeb.Infrastructure.Services
             await _notifier.BroadcastAsync("chat-cleared", null, cancellationToken);
         }
 
+        public async Task<OnlineClassRoomDto> CreateRoomAsync(CreateOnlineClassRoomRequest request, CancellationToken cancellationToken = default)
+        {
+            RequireAdmin();
+            var accountId = _currentUser.AccountId
+                ?? throw new DomainException("Không xác định được tài khoản đăng nhập");
+
+            var room = new OnlineClassRoom(
+                request.Name,
+                request.Description,
+                accountId,
+                GetCurrentDisplayName());
+
+            _dbContext.OnlineClassRooms.Add(room);
+            _dbContext.ClassRoomMembers.Add(new ClassRoomMember(room.Id, accountId, accountId));
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return await MapRoomDtoAsync(room.Id, cancellationToken);
+        }
+
+        public async Task<AssignClassRoomMembersResultDto> AssignRoomMembersAsync(
+            string roomId,
+            AssignClassRoomMembersRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            RequireAdmin();
+            var room = await _dbContext.OnlineClassRooms
+                .FirstOrDefaultAsync(x => x.Id == roomId, cancellationToken)
+                ?? throw new DomainException("Phòng học không tồn tại");
+
+            var accountIds = (request.AccountIds ?? new List<int>())
+                .Where(x => x > 0)
+                .Distinct()
+                .ToList();
+
+            if (accountIds.Count == 0)
+            {
+                throw new DomainException("Danh sách học sinh không được để trống");
+            }
+
+            var studentIds = await _dbContext.Accounts
+                .AsNoTracking()
+                .Where(x => accountIds.Contains(x.Id) && x.Role == "User")
+                .Select(x => x.Id)
+                .ToListAsync(cancellationToken);
+
+            var existingMemberIds = await _dbContext.ClassRoomMembers
+                .AsNoTracking()
+                .Where(x => x.RoomId == roomId)
+                .Select(x => x.AccountId)
+                .ToListAsync(cancellationToken);
+
+            var existingSet = existingMemberIds.ToHashSet();
+            var assignerId = _currentUser.AccountId;
+            var added = 0;
+            var skipped = 0;
+
+            foreach (var accountId in accountIds)
+            {
+                if (!studentIds.Contains(accountId))
+                {
+                    skipped += 1;
+                    continue;
+                }
+
+                if (existingSet.Contains(accountId))
+                {
+                    skipped += 1;
+                    continue;
+                }
+
+                _dbContext.ClassRoomMembers.Add(new ClassRoomMember(room.Id, accountId, assignerId));
+                existingSet.Add(accountId);
+                added += 1;
+            }
+
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            var memberAccountIds = await _dbContext.ClassRoomMembers
+                .AsNoTracking()
+                .Where(x => x.RoomId == roomId)
+                .Select(x => x.AccountId)
+                .ToListAsync(cancellationToken);
+
+            return new AssignClassRoomMembersResultDto
+            {
+                RoomId = room.Id,
+                AddedCount = added,
+                SkippedCount = skipped,
+                MemberAccountIds = memberAccountIds
+            };
+        }
+
+        public async Task<IReadOnlyList<OnlineClassRoomDto>> GetAccessibleRoomsAsync(CancellationToken cancellationToken = default)
+        {
+            var accountId = _currentUser.AccountId
+                ?? throw new DomainException("Không xác định được tài khoản đăng nhập");
+
+            IQueryable<OnlineClassRoom> query = _dbContext.OnlineClassRooms.AsNoTracking();
+
+            if (!_currentUser.IsAdmin)
+            {
+                var memberRoomIds = _dbContext.ClassRoomMembers
+                    .AsNoTracking()
+                    .Where(x => x.AccountId == accountId)
+                    .Select(x => x.RoomId);
+
+                query = query.Where(x => memberRoomIds.Contains(x.Id));
+            }
+
+            var rooms = await query
+                .OrderByDescending(x => x.CreatedAt)
+                .ToListAsync(cancellationToken);
+
+            var result = new List<OnlineClassRoomDto>();
+            foreach (var room in rooms)
+            {
+                result.Add(await MapRoomDtoAsync(room.Id, cancellationToken, room));
+            }
+
+            return result;
+        }
+
+        public async Task<bool> CanAccessRoomAsync(string roomId, CancellationToken cancellationToken = default)
+        {
+            if (string.IsNullOrWhiteSpace(roomId))
+            {
+                return false;
+            }
+
+            var roomExists = await _dbContext.OnlineClassRooms
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == roomId, cancellationToken);
+
+            if (!roomExists)
+            {
+                return false;
+            }
+
+            if (_currentUser.IsAdmin)
+            {
+                return true;
+            }
+
+            var accountId = _currentUser.AccountId;
+            if (!accountId.HasValue)
+            {
+                return false;
+            }
+
+            return await _dbContext.ClassRoomMembers
+                .AsNoTracking()
+                .AnyAsync(x => x.RoomId == roomId && x.AccountId == accountId.Value, cancellationToken);
+        }
+
+        private async Task<OnlineClassRoomDto> MapRoomDtoAsync(
+            string roomId,
+            CancellationToken cancellationToken,
+            OnlineClassRoom? room = null)
+        {
+            room ??= await _dbContext.OnlineClassRooms
+                .AsNoTracking()
+                .FirstAsync(x => x.Id == roomId, cancellationToken);
+
+            var memberCount = await _dbContext.ClassRoomMembers
+                .AsNoTracking()
+                .CountAsync(x => x.RoomId == roomId, cancellationToken);
+
+            var isMember = false;
+            if (_currentUser.AccountId.HasValue)
+            {
+                isMember = _currentUser.IsAdmin || await _dbContext.ClassRoomMembers
+                    .AsNoTracking()
+                    .AnyAsync(
+                        x => x.RoomId == roomId && x.AccountId == _currentUser.AccountId.Value,
+                        cancellationToken);
+            }
+
+            return new OnlineClassRoomDto
+            {
+                Id = room.Id,
+                Name = room.Name,
+                Description = room.Description,
+                IsLive = room.IsLive,
+                CreatedByAccountId = room.CreatedByAccountId,
+                CreatedByName = room.CreatedByName,
+                CreatedAt = room.CreatedAt,
+                UpdatedAt = room.UpdatedAt,
+                MemberCount = memberCount,
+                IsMember = isMember
+            };
+        }
+
         private async Task<OnlineClassState> GetOrCreateStateAsync(CancellationToken cancellationToken)
         {
             var state = await _dbContext.OnlineClassStates.FirstOrDefaultAsync(x => x.Id == 1, cancellationToken);

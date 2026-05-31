@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { getOnlineClassSocketUrl } from '../services/api'
 
 const CLASS_EVENTS = new Set([
@@ -8,12 +8,14 @@ const CLASS_EVENTS = new Set([
     'whiteboard-snapshots-updated',
     'chat-message',
     'chat-cleared',
+    'exam-monitor-event-recorded',
 ])
 
 export function useOnlineClassSocket({
     auth,
     connectionIdRef: providedConnectionIdRef,
     isJoinedRef,
+    roomIdRef,
     onAnswer,
     onDisconnected,
     onIceCandidate,
@@ -22,6 +24,7 @@ export function useOnlineClassSocket({
     onPeerJoined,
     onPeerLeft,
     onRealtimeEvent,
+    onRoomError,
     onWhiteboardEvent,
 }) {
     const socketRef = useRef(null)
@@ -30,7 +33,6 @@ export function useOnlineClassSocket({
     const internalConnectionIdRef = useRef('')
     const connectionIdRef = providedConnectionIdRef || internalConnectionIdRef
     const handlersRef = useRef({})
-    const [socketStatus, setSocketStatus] = useState('Đang kết nối')
 
     useEffect(() => {
         handlersRef.current = {
@@ -42,6 +44,7 @@ export function useOnlineClassSocket({
             onPeerJoined,
             onPeerLeft,
             onRealtimeEvent,
+            onRoomError,
             onWhiteboardEvent,
         }
     }, [
@@ -53,6 +56,7 @@ export function useOnlineClassSocket({
         onPeerJoined,
         onPeerLeft,
         onRealtimeEvent,
+        onRoomError,
         onWhiteboardEvent,
     ])
 
@@ -63,9 +67,16 @@ export function useOnlineClassSocket({
         return true
     }, [])
 
-    const sendRoomPresence = useCallback((type) => {
-        return sendSocketMessage({ type })
-    }, [sendSocketMessage])
+    const joinRoom = useCallback((roomId) => {
+        if (!roomId) return false
+        if (roomIdRef) roomIdRef.current = roomId
+        return sendSocketMessage({ type: 'join-room', roomId })
+    }, [roomIdRef, sendSocketMessage])
+
+    const leaveRoom = useCallback(() => {
+        if (roomIdRef) roomIdRef.current = ''
+        return sendSocketMessage({ type: 'leave-room' })
+    }, [roomIdRef, sendSocketMessage])
 
     const sendSignal = useCallback((type, targetConnectionId, payload) => {
         return sendSocketMessage({ type, targetConnectionId, payload })
@@ -95,22 +106,28 @@ export function useOnlineClassSocket({
             reconnectTimerRef.current = window.setTimeout(connectSocket, delay)
         }
 
+        function reconnectJoinRoom(socket) {
+            if (!isJoinedRef?.current) return
+            const roomId = roomIdRef?.current
+            if (roomId) {
+                socket.send(JSON.stringify({ type: 'join-room', roomId }))
+            }
+        }
+
         function connectSocket() {
             if (disposed) return
 
             const socketUrl = getOnlineClassSocketUrl(auth)
             if (!socketUrl) return
 
-            setSocketStatus('Đang kết nối realtime')
+            console.log('[ExamWeb] Connecting realtime socket…')
             const socket = new WebSocket(socketUrl)
             socketRef.current = socket
 
             socket.onopen = () => {
                 reconnectAttemptRef.current = 0
-                setSocketStatus('Realtime đã kết nối')
-                if (isJoinedRef.current) {
-                    socket.send(JSON.stringify({ type: 'join-room' }))
-                }
+                console.log('[ExamWeb] Realtime socket connected')
+                reconnectJoinRoom(socket)
             }
 
             socket.onclose = () => {
@@ -118,12 +135,12 @@ export function useOnlineClassSocket({
                     socketRef.current = null
                 }
                 handlersRef.current.onDisconnected?.()
-                setSocketStatus('Realtime đã ngắt, đang thử nối lại')
+                console.log('[ExamWeb] Realtime socket closed, reconnecting…')
                 scheduleReconnect()
             }
 
             socket.onerror = () => {
-                setSocketStatus('Realtime lỗi kết nối')
+                console.log('[ExamWeb] Realtime socket error')
             }
 
             socket.onmessage = async (event) => {
@@ -147,13 +164,18 @@ export function useOnlineClassSocket({
                     return
                 }
 
+                if (type === 'room-error') {
+                    handlers.onRoomError?.(payload?.message || 'Không thể vào phòng học')
+                    return
+                }
+
                 if (type === 'meeting-peers') {
-                    if (isJoinedRef.current) handlers.onMeetingPeers?.(payload.peers || [])
+                    if (isJoinedRef?.current) handlers.onMeetingPeers?.(payload.peers || [], payload)
                     return
                 }
 
                 if (type === 'peer-joined') {
-                    if (isJoinedRef.current) handlers.onPeerJoined?.(payload)
+                    if (isJoinedRef?.current) handlers.onPeerJoined?.(payload)
                     return
                 }
 
@@ -167,7 +189,7 @@ export function useOnlineClassSocket({
                     return
                 }
 
-                if (!isJoinedRef.current) return
+                if (!isJoinedRef?.current) return
 
                 if (type === 'offer') {
                     await handlers.onOffer?.(payload)
@@ -194,13 +216,13 @@ export function useOnlineClassSocket({
             socketRef.current = null
             handlersRef.current.onDisconnected?.()
         }
-    }, [auth, connectionIdRef, isJoinedRef])
+    }, [auth, connectionIdRef, isJoinedRef, roomIdRef])
 
     return {
         connectionIdRef,
+        joinRoom,
+        leaveRoom,
         sendRoomEvent,
-        sendRoomPresence,
         sendSignal,
-        socketStatus,
     }
 }

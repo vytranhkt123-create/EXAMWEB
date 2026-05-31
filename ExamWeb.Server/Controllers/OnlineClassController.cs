@@ -140,5 +140,54 @@ namespace ExamWeb.Server.Controllers
                 return BadRequest(new { message = ex.Message });
             }
         }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPost("rooms")]
+        public async Task<ActionResult<OnlineClassRoomDto>> CreateRoom(
+            CreateOnlineClassRoomRequest request,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var room = await _onlineClassService.CreateRoomAsync(request, cancellationToken);
+                return CreatedAtAction(nameof(GetRooms), new { id = room.Id }, room);
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPost("rooms/{roomId}/members")]
+        public async Task<ActionResult<AssignClassRoomMembersResultDto>> AssignRoomMembers(
+            string roomId,
+            AssignClassRoomMembersRequest request,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var result = await _onlineClassService.AssignRoomMembersAsync(roomId, request, cancellationToken);
+                return Ok(result);
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpGet("rooms")]
+        public async Task<ActionResult<IReadOnlyList<OnlineClassRoomDto>>> GetRooms(CancellationToken cancellationToken)
+        {
+            try
+            {
+                var rooms = await _onlineClassService.GetAccessibleRoomsAsync(cancellationToken);
+                return Ok(rooms);
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
     }
 }

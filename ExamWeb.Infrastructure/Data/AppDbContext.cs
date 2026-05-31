@@ -29,5 +29,7 @@ namespace ExamWeb.Infrastructure.Data
         public DbSet<OnlineClassState> OnlineClassStates { get; set; }
         public DbSet<WhiteboardSnapshot> WhiteboardSnapshots { get; set; }
         public DbSet<OnlineChatMessage> OnlineChatMessages { get; set; }
+        public DbSet<OnlineClassRoom> OnlineClassRooms { get; set; }
+        public DbSet<ClassRoomMember> ClassRoomMembers { get; set; }
     }
 }

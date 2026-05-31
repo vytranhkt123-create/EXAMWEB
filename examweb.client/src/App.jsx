@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ExamFullscreenView } from './components/ExamFullscreenView'
 import { LoginView } from './components/LoginView'
-import { APP_NAME, MAX_PDF_FILE_SIZE, RTC_ICE_SERVERS, THEME_STORAGE_KEY } from './config/appConfig'
+import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConfig'
 import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi } from './services/api'
-import { useOnlineClassSocket } from './hooks/useOnlineClassSocket'
+import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
+import { useOnlineClassWebRTC } from './hooks/useOnlineClassWebRTC'
 import { clearSession, getModeForSession, getPathForMode, getStoredSession, saveSession } from './services/session'
 import { dataUrlToBlob, readFileAsDataUrl } from './utils/file'
 import './App.css'
@@ -49,6 +50,19 @@ const ADMIN_TEST_TABS = [
     { id: 'history', label: 'Lịch sử' },
     { id: 'monitoring', label: 'Theo dõi' },
 ]
+
+const EXAM_SCREEN_SHARE_CONSTRAINTS = {
+    audio: false,
+    video: {
+        frameRate: { ideal: 8, max: 15 },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+    },
+}
+
+function createExamMonitorRoomId(testId, sessionId) {
+    return `exam-monitor:${testId}:${sessionId}`
+}
 
 async function enterExamFullscreen(element) {
     const target = element || document.documentElement
@@ -132,6 +146,17 @@ function getMonitorEventText(eventType) {
     return labels[eventType] || eventType
 }
 
+const EXAM_VIOLATION_EVENT_TYPES = new Set([
+    'FullscreenExited',
+    'ScreenShareStopped',
+    'TabHidden',
+    'WindowBlur',
+])
+
+function getMonitorViolationCount(session) {
+    return (session.events || []).filter((event) => EXAM_VIOLATION_EVENT_TYPES.has(event.eventType)).length
+}
+
 function App() {
     const [auth, setAuth] = useState(getStoredSession)
     const [theme, setTheme] = useState(() => localStorage.getItem(THEME_STORAGE_KEY) || 'light')
@@ -149,6 +174,7 @@ function App() {
     const [startedAt, setStartedAt] = useState(null)
     const [timeLeft, setTimeLeft] = useState(null)
     const [monitoringSessionId, setMonitoringSessionId] = useState('')
+    const [examMonitorRoomId, setExamMonitorRoomId] = useState('')
     const [monitoringStatus, setMonitoringStatus] = useState('idle')
     const [monitoringMessage, setMonitoringMessage] = useState('')
     const [newTestName, setNewTestName] = useState('')
@@ -183,7 +209,39 @@ function App() {
     const screenStreamRef = useRef(null)
     const screenVideoRef = useRef(null)
     const examShellRef = useRef(null)
+    const examMonitorRef = useRef({ testId: '', sessionId: '' })
+    const recordScreenMonitorEventRef = useRef(() => {})
     const mode = getModeForSession(auth)
+
+    const {
+        joinMeeting: joinExamMonitorRoom,
+        leaveMeeting: leaveExamMonitorRoom,
+        sendRoomEvent: sendExamMonitorEvent,
+        startScreenShare: startExamScreenShare,
+    } = useOnlineClassWebRTC({
+        auth,
+        roomId: examMonitorRoomId,
+        enabled: Boolean(auth?.accessToken && mode !== 'admin'),
+        autoStartMedia: false,
+        mediaConstraints: null,
+        screenShareConstraints: EXAM_SCREEN_SHARE_CONSTRAINTS,
+        onRoomError: (message) => {
+            setMonitoringMessage(message || 'Không kết nối được phòng giám sát')
+        },
+        onScreenShareStopped: () => {
+            const { testId, sessionId } = examMonitorRef.current
+            if (!testId || !sessionId || submittingRef.current) return
+            setMonitoringStatus('stopped')
+            setMonitoringMessage('Học viên đã dừng chia sẻ màn hình')
+            setFullscreenWarning('Cảnh báo: Bạn đã dừng chia sẻ màn hình. Hãy bật lại để tiếp tục làm bài.')
+            recordScreenMonitorEventRef.current(
+                testId,
+                sessionId,
+                'ScreenShareStopped',
+                'Học viên đã dừng chia sẻ màn hình',
+            )
+        },
+    })
 
     const toggleTheme = useCallback(() => {
         setTheme((current) => (current === 'dark' ? 'light' : 'dark'))
@@ -194,8 +252,8 @@ function App() {
         return studentTest.questions.filter((question) => selectedAnswers[question.id]).length
     }, [selectedAnswers, studentTest])
 
-    const isExamLocked = Boolean(result)
     const isExamRunning = Boolean(studentTest && !result && studentTest.questions.length > 0)
+    const isExamLocked = Boolean(result || (isExamRunning && (monitoringStatus !== 'active' || !isFullscreen)))
 
     const handleAuthFailure = useCallback((err) => {
         if (err?.status === 401) {
@@ -293,25 +351,39 @@ function App() {
         }
         screenStreamRef.current = null
         screenVideoRef.current = null
-    }, [])
+        setExamMonitorRoomId('')
+        examMonitorRef.current = { testId: '', sessionId: '' }
+        leaveExamMonitorRoom()
+    }, [leaveExamMonitorRoom])
 
     const recordScreenMonitorEvent = useCallback(async (testId, sessionId, eventType, message, imageDataUrl = null) => {
         if (!testId || !sessionId) return
 
+        const payload = {
+            testId,
+            sessionId,
+            eventType,
+            message,
+            imageDataUrl,
+        }
+
+        if (sendExamMonitorEvent('exam-monitor-event', payload)) {
+            return
+        }
+
         try {
             await api(`/${testId}/monitoring`, {
                 method: 'POST',
-                body: JSON.stringify({
-                    sessionId,
-                    eventType,
-                    message,
-                    imageDataUrl,
-                }),
+                body: JSON.stringify(payload),
             })
         } catch (err) {
             setMonitoringMessage(err.message)
         }
-    }, [])
+    }, [sendExamMonitorEvent])
+
+    useEffect(() => {
+        recordScreenMonitorEventRef.current = recordScreenMonitorEvent
+    }, [recordScreenMonitorEvent])
 
     const captureScreenImage = useCallback(() => {
         const video = screenVideoRef.current
@@ -344,6 +416,14 @@ function App() {
             imageDataUrl,
         )
     }, [captureScreenImage, monitoringSessionId, monitoringStatus, recordScreenMonitorEvent, result, studentTest])
+
+    const reportExamViolation = useCallback((eventType, message, warning) => {
+        if (!studentTest || !monitoringSessionId || result || submittingRef.current) return
+
+        setFullscreenWarning(warning)
+        setMonitoringMessage(message)
+        recordScreenMonitorEvent(studentTest.id, monitoringSessionId, eventType, message)
+    }, [monitoringSessionId, recordScreenMonitorEvent, result, studentTest])
 
     const submitTest = useCallback(async ({ allowIncomplete = false, isTimeExpired = false } = {}) => {
         if (!studentTest || submittingRef.current || result) return
@@ -391,16 +471,12 @@ function App() {
             const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement)
             setIsFullscreen(active)
 
-            if (!active && studentTest && !result) {
-                setFullscreenWarning('Cảnh báo: Bạn đã thoát chế độ toàn màn hình. Hành vi này có thể bị admin ghi nhận.')
-                if (monitoringSessionId) {
-                    recordScreenMonitorEvent(
-                        studentTest.id,
-                        monitoringSessionId,
-                        'FullscreenExited',
-                        'Học viên thoát chế độ toàn màn hình',
-                    )
-                }
+            if (!active && studentTest && !result && !submittingRef.current) {
+                reportExamViolation(
+                    'FullscreenExited',
+                    'Học viên thoát chế độ toàn màn hình',
+                    'Cảnh báo: Bạn đã thoát chế độ toàn màn hình. Hành vi này đã được ghi nhận.',
+                )
             } else if (active) {
                 setFullscreenWarning('')
             }
@@ -412,7 +488,7 @@ function App() {
             document.removeEventListener('fullscreenchange', onFullscreenChange)
             document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
         }
-    }, [monitoringSessionId, recordScreenMonitorEvent, result, studentTest])
+    }, [reportExamViolation, result, studentTest])
 
     useEffect(() => {
         if (!studentTest || result || studentTest.questions.length === 0) return undefined
@@ -500,13 +576,24 @@ function App() {
         if (!studentTest || !monitoringSessionId || result) return undefined
 
         const reportVisibility = () => {
-            const eventType = document.hidden ? 'TabHidden' : 'TabVisible'
-            const message = document.hidden ? 'Học viên rời khỏi tab làm bài' : 'Học viên quay lại tab làm bài'
-            recordScreenMonitorEvent(studentTest.id, monitoringSessionId, eventType, message)
+            if (document.hidden) {
+                reportExamViolation(
+                    'TabHidden',
+                    'Học viên rời khỏi tab làm bài',
+                    'Cảnh báo: Bạn đã rời khỏi tab làm bài. Hành vi này đã được ghi nhận.',
+                )
+                return
+            }
+
+            recordScreenMonitorEvent(studentTest.id, monitoringSessionId, 'TabVisible', 'Học viên quay lại tab làm bài')
         }
 
         const reportBlur = () => {
-            recordScreenMonitorEvent(studentTest.id, monitoringSessionId, 'WindowBlur', 'Cửa sổ làm bài mất focus')
+            reportExamViolation(
+                'WindowBlur',
+                'Cửa sổ làm bài mất focus',
+                'Cảnh báo: Cửa sổ làm bài đã mất focus. Hành vi này đã được ghi nhận.',
+            )
         }
 
         document.addEventListener('visibilitychange', reportVisibility)
@@ -516,7 +603,7 @@ function App() {
             document.removeEventListener('visibilitychange', reportVisibility)
             window.removeEventListener('blur', reportBlur)
         }
-    }, [monitoringSessionId, recordScreenMonitorEvent, result, studentTest])
+    }, [monitoringSessionId, recordScreenMonitorEvent, reportExamViolation, result, studentTest])
 
     useEffect(() => {
         if (!result) return undefined
@@ -623,30 +710,16 @@ function App() {
     }, [])
 
     useEffect(() => {
-        if (mode !== 'admin' || !adminTest) return undefined
+        if (mode !== 'admin' || !adminTest || adminTestTab !== 'monitoring') return undefined
 
         const interval = window.setInterval(() => {
             loadScreenMonitoring(adminTest.id)
-        }, 15000)
+        }, 5000)
 
         return () => window.clearInterval(interval)
-    }, [adminTest, loadScreenMonitoring, mode])
+    }, [adminTest, adminTestTab, loadScreenMonitoring, mode])
 
-    async function startScreenMonitoring(testId) {
-        if (!navigator.mediaDevices?.getDisplayMedia) {
-            throw new Error('Trình duyệt chưa hỗ trợ chia sẻ màn hình')
-        }
-
-        const sessionId = createSessionId()
-        const stream = await navigator.mediaDevices.getDisplayMedia({
-            audio: false,
-            video: {
-                frameRate: { ideal: 2, max: 5 },
-                width: { ideal: 1280 },
-                height: { ideal: 720 },
-            },
-        })
-
+    async function attachScreenPreview(stream) {
         const video = document.createElement('video')
         video.muted = true
         video.playsInline = true
@@ -655,19 +728,64 @@ function App() {
 
         screenStreamRef.current = stream
         screenVideoRef.current = video
+    }
+
+    async function startScreenMonitoring(testId) {
+        if (!navigator.mediaDevices?.getDisplayMedia) {
+            throw new Error('Trình duyệt chưa hỗ trợ chia sẻ màn hình')
+        }
+
+        const sessionId = createSessionId()
+        const roomId = createExamMonitorRoomId(testId, sessionId)
+        examMonitorRef.current = { testId, sessionId }
+        setExamMonitorRoomId(roomId)
+        setMonitoringSessionId(sessionId)
+        setMonitoringStatus('starting')
+        setMonitoringMessage('Đang kết nối phòng giám sát')
+
+        await joinExamMonitorRoom(roomId)
+        const stream = await startExamScreenShare()
+        if (!stream) {
+            throw new Error('Cần bật chia sẻ màn hình để bắt đầu làm bài')
+        }
+
+        await attachScreenPreview(stream)
         setMonitoringSessionId(sessionId)
         setMonitoringStatus('active')
         setMonitoringMessage('Đang chia sẻ màn hình')
 
-        stream.getVideoTracks().forEach((track) => {
-            track.addEventListener('ended', () => {
-                setMonitoringStatus('stopped')
-                setMonitoringMessage('Học viên đã dừng chia sẻ màn hình')
-                recordScreenMonitorEvent(testId, sessionId, 'ScreenShareStopped', 'Học viên đã dừng chia sẻ màn hình')
-            }, { once: true })
-        })
-
         return sessionId
+    }
+
+    async function restartScreenMonitoring() {
+        if (!studentTest || !monitoringSessionId) return
+
+        setError('')
+        setMonitoringMessage('Đang bật lại chia sẻ màn hình')
+
+        try {
+            const stream = await startExamScreenShare()
+            if (!stream) {
+                throw new Error('Cần bật chia sẻ màn hình để tiếp tục làm bài')
+            }
+
+            await attachScreenPreview(stream)
+            setMonitoringStatus('active')
+            setMonitoringMessage('Đang chia sẻ màn hình')
+            setFullscreenWarning('')
+            await recordScreenMonitorEvent(
+                studentTest.id,
+                monitoringSessionId,
+                'ScreenShareStarted',
+                'Học viên bật lại chia sẻ màn hình',
+            )
+        } catch (err) {
+            if (err?.name === 'NotAllowedError') {
+                setError('Cần bật chia sẻ màn hình để tiếp tục làm bài')
+            } else {
+                setError(err.message)
+            }
+        }
     }
 
     async function confirmStartExam(forcedTestId = pendingTestId) {
@@ -682,6 +800,7 @@ function App() {
 
         try {
             const testId = forcedTestId
+            await enterExamFullscreen(document.documentElement)
             const sessionId = await startScreenMonitoring(testId)
             const data = await api(`/${testId}/take`)
             setStudentTest(data)
@@ -696,7 +815,7 @@ function App() {
             setMonitoringStatus('idle')
             setMonitoringMessage('')
             if (err?.name === 'NotAllowedError') {
-                setError('Cần bật chia sẻ màn hình để bắt đầu làm bài')
+                setError('Cần bật toàn màn hình và chia sẻ màn hình để bắt đầu làm bài')
             } else if (!handleAuthFailure(err)) {
                 setError(err.message)
             }
@@ -1212,6 +1331,12 @@ function App() {
         }
         if (type === 'chat-cleared') {
             setChatMessages([])
+            return
+        }
+        if (type === 'exam-monitor-event-recorded' && payload?.testId) {
+            if (adminTest?.id === payload.testId) {
+                loadScreenMonitoring(payload.testId)
+            }
         }
     }
 
@@ -1224,8 +1349,10 @@ function App() {
         setStartedAt(null)
         setTimeLeft(null)
         setMonitoringSessionId('')
+        setExamMonitorRoomId('')
         setMonitoringStatus('idle')
         setMonitoringMessage('')
+        examMonitorRef.current = { testId: '', sessionId: '' }
         setPendingTestId(null)
         setShowMonitorDialog(false)
         setShowSubmitConfirm(false)
@@ -1399,6 +1526,7 @@ function App() {
                     monitoringStatus={monitoringStatus}
                     onReenterFullscreen={() => enterExamFullscreen(examShellRef.current)}
                     onReset={resetStudentWork}
+                    onRestartScreenShare={restartScreenMonitoring}
                     onSelectAnswer={selectAnswer}
                     onSubmit={handleSubmitClick}
                     result={result}
@@ -1458,8 +1586,8 @@ function ScreenMonitorConsentDialog({ loading, onCancel, onConfirm, testName }) 
                     chuyển sang <strong>chế độ toàn màn hình</strong> chỉ hiển thị đề thi.
                 </p>
                 <ul className="modal-checklist">
-                    <li>Admin có thể xem ảnh chụp màn hình định kỳ</li>
-                    <li>Thoát toàn màn hình sẽ hiện cảnh báo và được ghi nhận</li>
+                    <li>Admin có thể xem trực tiếp màn hình khi bạn đang làm bài</li>
+                    <li>Thoát toàn màn hình, chuyển tab hoặc mất focus sẽ được ghi nhận</li>
                     <li>Bạn có thể nộp bài khi chưa làm hết câu hỏi</li>
                 </ul>
                 <div className="modal-actions">
@@ -2056,7 +2184,7 @@ function AdminDashboard({
                             )}
 
                             {adminTestTab === 'monitoring' && (
-                                <ScreenMonitoringPanel loading={monitoringLoading} sessions={screenMonitorSessions} />
+                                <ScreenMonitoringPanel auth={auth} loading={monitoringLoading} sessions={screenMonitorSessions} />
                             )}
                         </section>
                     )}
@@ -2410,585 +2538,21 @@ function MeetingDevicePanel({
     auth,
     canManage = false,
     chatMessages = [],
-    materials = [],
     onClearChat,
-    onDeleteWhiteboardSnapshot,
     onRealtimeEvent,
-    onSaveWhiteboard,
     onSendChatMessage,
-    onToggleOnlineLive,
-    onUseWhiteboardSnapshot,
     onlineClass,
-    whiteboardSnapshots = [],
 }) {
-    const roomRef = useRef(null)
-    const localVideoRef = useRef(null)
-    const screenVideoRef = useRef(null)
-    const streamRef = useRef(null)
-    const screenStreamRef = useRef(null)
-    const peerConnectionsRef = useRef(new Map())
-    const connectionIdRef = useRef('')
-    const isJoinedRef = useRef(false)
-    const socketActionsRef = useRef({
-        sendRoomEvent: () => false,
-        sendRoomPresence: () => false,
-        sendSignal: () => false,
-    })
-
-    const [cameraOn, setCameraOn] = useState(false)
-    const [isJoined, setIsJoined] = useState(false)
-    const [isScreenSharing, setIsScreenSharing] = useState(false)
-    const [mediaError, setMediaError] = useState('')
-    const [micOn, setMicOn] = useState(false)
-    const [peers, setPeers] = useState({})
-    const [remoteWhiteboardEvent, setRemoteWhiteboardEvent] = useState(null)
-    const [roomMode, setRoomMode] = useState('video')
-    const [selectedMaterialId, setSelectedMaterialId] = useState('')
-
-    const canJoinRoom = onlineClass.isLive || canManage
-    const peerList = Object.values(peers)
-    const selectedMaterial = materials.find((material) => material.id === selectedMaterialId) || materials[0]
-
-    useEffect(() => {
-        isJoinedRef.current = isJoined
-    }, [isJoined])
-
-    useEffect(() => {
-        if (screenVideoRef.current) {
-            screenVideoRef.current.srcObject = screenStreamRef.current
-        }
-    }, [isScreenSharing, roomMode])
-
-    const sendSignalToPeer = useCallback((type, targetConnectionId, payload) => {
-        return socketActionsRef.current.sendSignal(type, targetConnectionId, payload)
-    }, [])
-
-    const sendRoomEvent = useCallback((type, payload) => {
-        return socketActionsRef.current.sendRoomEvent(type, payload)
-    }, [])
-
-    const upsertPeer = useCallback((connectionId, patch) => {
-        setPeers((current) => ({
-            ...current,
-            [connectionId]: {
-                connectionId,
-                displayName: 'Người tham gia',
-                role: 'User',
-                stream: null,
-                connectionState: 'new',
-                ...(current[connectionId] || {}),
-                ...patch,
-            },
-        }))
-    }, [])
-
-    const removePeer = useCallback((connectionId) => {
-        const peerConnection = peerConnectionsRef.current.get(connectionId)
-        if (peerConnection) {
-            peerConnection.close()
-            peerConnectionsRef.current.delete(connectionId)
-        }
-        setPeers((current) => {
-            const next = { ...current }
-            delete next[connectionId]
-            return next
-        })
-    }, [])
-
-    const closePeerConnections = useCallback(() => {
-        peerConnectionsRef.current.forEach((peerConnection) => peerConnection.close())
-        peerConnectionsRef.current.clear()
-        setPeers({})
-    }, [])
-
-    const createAndSendOffer = useCallback(async (connectionId) => {
-        const peerConnection = peerConnectionsRef.current.get(connectionId)
-        if (!peerConnection) return
-        const offer = await peerConnection.createOffer()
-        await peerConnection.setLocalDescription(offer)
-        sendSignalToPeer('offer', connectionId, offer)
-    }, [sendSignalToPeer])
-
-    const createPeerConnection = useCallback((peer, shouldOffer = false) => {
-        if (!isJoinedRef.current || !peer?.connectionId || peer.connectionId === connectionIdRef.current) return null
-        const existing = peerConnectionsRef.current.get(peer.connectionId)
-        if (existing) {
-            upsertPeer(peer.connectionId, peer)
-            return existing
-        }
-
-        const peerConnection = new RTCPeerConnection({
-            iceServers: RTC_ICE_SERVERS,
-        })
-
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => {
-                peerConnection.addTrack(track, streamRef.current)
-            })
-        }
-
-        peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                sendSignalToPeer('ice-candidate', peer.connectionId, event.candidate)
-            }
-        }
-
-        peerConnection.ontrack = (event) => {
-            upsertPeer(peer.connectionId, {
-                ...peer,
-                stream: event.streams[0],
-            })
-        }
-
-        peerConnection.onconnectionstatechange = () => {
-            upsertPeer(peer.connectionId, {
-                ...peer,
-                connectionState: peerConnection.connectionState,
-            })
-        }
-
-        peerConnectionsRef.current.set(peer.connectionId, peerConnection)
-        upsertPeer(peer.connectionId, peer)
-
-        if (shouldOffer) {
-            window.setTimeout(() => {
-                createAndSendOffer(peer.connectionId).catch(() => {
-                    setMediaError('Không thể tạo kết nối video với người tham gia')
-                })
-            }, 120)
-        }
-
-        return peerConnection
-    }, [createAndSendOffer, sendSignalToPeer, upsertPeer])
-
-    const handleMeetingPeers = useCallback((meetingPeers) => {
-        meetingPeers.forEach((peer) => createPeerConnection(peer, false))
-    }, [createPeerConnection])
-
-    const handlePeerJoined = useCallback((peer) => {
-        createPeerConnection(peer, true)
-    }, [createPeerConnection])
-
-    const handleOffer = useCallback(async (payload) => {
-        const peer = {
-            connectionId: payload.fromConnectionId,
-            displayName: payload.fromDisplayName,
-            role: payload.fromRole || 'User',
-        }
-        const peerConnection = createPeerConnection(peer, false)
-        if (!peerConnection) return
-        await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
-        const answer = await peerConnection.createAnswer()
-        await peerConnection.setLocalDescription(answer)
-        sendSignalToPeer('answer', peer.connectionId, answer)
-    }, [createPeerConnection, sendSignalToPeer])
-
-    const handleAnswer = useCallback(async (payload) => {
-        const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
-        if (peerConnection) {
-            await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
-        }
-    }, [])
-
-    const handleIceCandidate = useCallback(async (payload) => {
-        const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
-        if (peerConnection && payload.payload) {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(payload.payload))
-        }
-    }, [])
-
-    const handleWhiteboardEvent = useCallback((type, payload) => {
-        setRemoteWhiteboardEvent({
-            id: `${type}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            payload: payload?.payload || null,
-            type,
-        })
-    }, [])
-
-    const {
-        sendRoomEvent: socketSendRoomEvent,
-        sendRoomPresence,
-        sendSignal,
-        socketStatus,
-    } = useOnlineClassSocket({
-        auth,
-        connectionIdRef,
-        isJoinedRef,
-        onAnswer: handleAnswer,
-        onDisconnected: closePeerConnections,
-        onIceCandidate: handleIceCandidate,
-        onMeetingPeers: handleMeetingPeers,
-        onOffer: handleOffer,
-        onPeerJoined: handlePeerJoined,
-        onPeerLeft: removePeer,
-        onRealtimeEvent,
-        onWhiteboardEvent: handleWhiteboardEvent,
-    })
-
-    useEffect(() => {
-        socketActionsRef.current = {
-            sendRoomEvent: socketSendRoomEvent,
-            sendRoomPresence,
-            sendSignal,
-        }
-    }, [socketSendRoomEvent, sendRoomPresence, sendSignal])
-
-    const renegotiatePeers = useCallback(async () => {
-        for (const connectionId of peerConnectionsRef.current.keys()) {
-            await createAndSendOffer(connectionId)
-        }
-    }, [createAndSendOffer])
-
-    const attachLocalStreamToPeers = useCallback((stream) => {
-        peerConnectionsRef.current.forEach((peerConnection) => {
-            const senderTracks = peerConnection.getSenders().map((sender) => sender.track).filter(Boolean)
-            stream.getTracks().forEach((track) => {
-                if (!senderTracks.includes(track)) {
-                    peerConnection.addTrack(track, stream)
-                }
-            })
-        })
-    }, [])
-
-    const replaceOutgoingVideoTrack = useCallback(async (track) => {
-        const replaceTasks = []
-        peerConnectionsRef.current.forEach((peerConnection) => {
-            peerConnection.getSenders()
-                .filter((sender) => sender.track?.kind === 'video')
-                .forEach((sender) => replaceTasks.push(sender.replaceTrack(track)))
-        })
-        await Promise.all(replaceTasks)
-    }, [])
-
-    async function startMedia() {
-        if (!navigator.mediaDevices?.getUserMedia) {
-            setMediaError('Trình duyệt chưa hỗ trợ camera/micro')
-            return null
-        }
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-            streamRef.current = stream
-            if (!isScreenSharing && localVideoRef.current) localVideoRef.current.srcObject = stream
-            setCameraOn(stream.getVideoTracks().some((track) => track.enabled))
-            setMicOn(stream.getAudioTracks().some((track) => track.enabled))
-            setMediaError('')
-            attachLocalStreamToPeers(stream)
-            await renegotiatePeers()
-            return stream
-        } catch {
-            setMediaError('Không thể bật camera hoặc micro. Hãy kiểm tra quyền trình duyệt.')
-            return null
-        }
-    }
-
-    async function stopScreenShare() {
-        if (screenStreamRef.current) {
-            screenStreamRef.current.getTracks().forEach((track) => track.stop())
-        }
-        screenStreamRef.current = null
-        setIsScreenSharing(false)
-
-        const cameraTrack = streamRef.current?.getVideoTracks()?.[0] || null
-        await replaceOutgoingVideoTrack(cameraTrack)
-        if (localVideoRef.current) localVideoRef.current.srcObject = streamRef.current
-        if (screenVideoRef.current) screenVideoRef.current.srcObject = null
-        setRoomMode('video')
-    }
-
-    async function startScreenShare() {
-        if (!navigator.mediaDevices?.getDisplayMedia) {
-            setMediaError('Trình duyệt chưa hỗ trợ chia sẻ màn hình')
-            return
-        }
-
-        try {
-            const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true })
-            screenStreamRef.current = displayStream
-            const screenTrack = displayStream.getVideoTracks()[0]
-            if (screenTrack) {
-                screenTrack.onended = () => {
-                    stopScreenShare()
-                }
-                await replaceOutgoingVideoTrack(screenTrack)
-            }
-            if (screenVideoRef.current) screenVideoRef.current.srcObject = displayStream
-            if (localVideoRef.current) localVideoRef.current.srcObject = displayStream
-            setIsScreenSharing(true)
-            setRoomMode('screen')
-            setMediaError('')
-        } catch {
-            setMediaError('Bạn cần chọn màn hình hoặc tab để chia sẻ.')
-        }
-    }
-
-    async function toggleCamera() {
-        const stream = streamRef.current || await startMedia()
-        if (!stream) return
-        const next = !cameraOn
-        stream.getVideoTracks().forEach((track) => {
-            track.enabled = next
-        })
-        setCameraOn(next)
-        await renegotiatePeers()
-    }
-
-    async function toggleMicrophone() {
-        const stream = streamRef.current || await startMedia()
-        if (!stream) return
-        const next = !micOn
-        stream.getAudioTracks().forEach((track) => {
-            track.enabled = next
-        })
-        setMicOn(next)
-        await renegotiatePeers()
-    }
-
-    async function stopMedia({ renegotiate = true } = {}) {
-        if (screenStreamRef.current) {
-            screenStreamRef.current.getTracks().forEach((track) => track.stop())
-            screenStreamRef.current = null
-        }
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach((track) => track.stop())
-        }
-        streamRef.current = null
-        if (localVideoRef.current) localVideoRef.current.srcObject = null
-        if (screenVideoRef.current) screenVideoRef.current.srcObject = null
-        peerConnectionsRef.current.forEach((peerConnection) => {
-            peerConnection.getSenders().forEach((sender) => {
-                if (sender.track) {
-                    peerConnection.removeTrack(sender)
-                }
-            })
-        })
-        setCameraOn(false)
-        setMicOn(false)
-        setIsScreenSharing(false)
-        if (renegotiate) {
-            await renegotiatePeers()
-        }
-    }
-
-    async function joinRoom() {
-        if (!canJoinRoom) return
-
-        isJoinedRef.current = true
-        setIsJoined(true)
-        setRoomMode('video')
-        setMediaError('')
-        sendRoomPresence('join-room')
-
-        try {
-            await enterExamFullscreen(roomRef.current)
-        } catch {
-            setMediaError('Trình duyệt không cho bật toàn màn hình, phòng vẫn mở trong cửa sổ.')
-        }
-
-        await startMedia()
-    }
-
-    async function leaveRoom() {
-        isJoinedRef.current = false
-        sendRoomPresence('leave-room')
-        setIsJoined(false)
-        await stopMedia({ renegotiate: false })
-        closePeerConnections()
-        await exitExamFullscreen()
-    }
-
-    function renderStage() {
-        if (roomMode === 'slides') {
-            return (
-                <ClassroomSlidesPanel
-                    materials={materials}
-                    onSelectMaterial={setSelectedMaterialId}
-                    selectedMaterial={selectedMaterial}
-                    selectedMaterialId={selectedMaterial?.id || ''}
-                />
-            )
-        }
-
-        if (roomMode === 'whiteboard') {
-            return (
-                <div className="classroom-whiteboard-stage">
-                    <WhiteboardTool
-                        canEdit={canManage || onlineClass.isLive}
-                        initialImage={onlineClass.whiteboardImage}
-                        onRealtimeClear={() => sendRoomEvent('whiteboard-clear', {})}
-                        onRealtimeDraw={(stroke) => sendRoomEvent('whiteboard-draw', stroke)}
-                        onSave={onSaveWhiteboard}
-                        remoteEvent={remoteWhiteboardEvent}
-                    />
-                    <WhiteboardSnapshotList
-                        canManage={canManage}
-                        onDeleteSnapshot={onDeleteWhiteboardSnapshot}
-                        onUseSnapshot={onUseWhiteboardSnapshot}
-                        snapshots={whiteboardSnapshots}
-                    />
-                </div>
-            )
-        }
-
-        if (roomMode === 'screen') {
-            return (
-                <div className="screen-share-stage">
-                    {isScreenSharing ? (
-                        <video autoPlay muted playsInline ref={screenVideoRef} />
-                    ) : (
-                        <div className="screen-share-empty">
-                            <strong>Chưa chia sẻ màn hình</strong>
-                            <button className="primary-button" onClick={startScreenShare} type="button">
-                                Chia sẻ màn hình
-                            </button>
-                        </div>
-                    )}
-                </div>
-            )
-        }
-
-        return (
-            <div className="video-grid">
-                <div className="video-tile local">
-                    <video autoPlay muted playsInline ref={localVideoRef} />
-                    {!cameraOn && <span>Camera đang tắt</span>}
-                    <strong>{auth?.displayName || auth?.username || 'Bạn'} · Bạn</strong>
-                </div>
-                {peerList.map((peer) => (
-                    <RemoteVideoTile key={peer.connectionId} peer={peer} />
-                ))}
-            </div>
-        )
-    }
-
     return (
-        <section className={`meeting-panel admin-panel ${isJoined ? 'in-room' : ''}`} ref={roomRef}>
-            <div className="panel-title meeting-room-head">
-                <div>
-                    <h2>{isJoined ? onlineClass.title : 'Phòng học trực tuyến'}</h2>
-                    <span>{socketStatus} · {peerList.length} người khác</span>
-                </div>
-                <span className={onlineClass.isLive ? 'status-chip' : 'status-chip warning'}>
-                    {onlineClass.isLive ? 'Lớp đang mở' : 'Lớp chưa mở'}
-                </span>
-            </div>
-
-            {!isJoined ? (
-                <>
-                    <div className="meeting-lobby">
-                        <div>
-                            <strong>{onlineClass.title}</strong>
-                            <p>{onlineClass.agenda || 'Chưa có nội dung buổi học'}</p>
-                        </div>
-                        <button className="primary-button" disabled={!canJoinRoom} onClick={joinRoom} type="button">
-                            {canJoinRoom ? 'Tham gia lớp học' : 'Chờ admin mở lớp'}
-                        </button>
-                    </div>
-                    {mediaError && <p className="field-hint danger-text">{mediaError}</p>}
-                </>
-            ) : (
-                <div className="classroom-room-shell">
-                    <div className="classroom-main-area">
-                        <div className="classroom-toolbar">
-                            <button className={roomMode === 'video' ? 'primary-button' : 'ghost-button'} onClick={() => setRoomMode('video')} type="button">
-                                Camera
-                            </button>
-                            <button className={roomMode === 'screen' ? 'primary-button' : 'ghost-button'} onClick={() => (isScreenSharing ? setRoomMode('screen') : startScreenShare())} type="button">
-                                Chia sẻ màn hình
-                            </button>
-                            <button className={roomMode === 'slides' ? 'primary-button' : 'ghost-button'} onClick={() => setRoomMode('slides')} type="button">
-                                Slide/PDF
-                            </button>
-                            <button className={roomMode === 'whiteboard' ? 'primary-button' : 'ghost-button'} onClick={() => setRoomMode('whiteboard')} type="button">
-                                Bảng trắng
-                            </button>
-                        </div>
-                        <div className="classroom-stage">
-                            {renderStage()}
-                        </div>
-                        {mediaError && <p className="field-hint danger-text">{mediaError}</p>}
-                        <div className="media-controls">
-                            <button className={cameraOn ? 'primary-button' : 'ghost-button'} onClick={toggleCamera} type="button">
-                                {cameraOn ? 'Tắt cam' : 'Bật cam'}
-                            </button>
-                            <button className={micOn ? 'primary-button' : 'ghost-button'} onClick={toggleMicrophone} type="button">
-                                {micOn ? 'Tắt micro' : 'Bật micro'}
-                            </button>
-                            {isScreenSharing && (
-                                <button className="ghost-button" onClick={stopScreenShare} type="button">
-                                    Dừng chia sẻ
-                                </button>
-                            )}
-                            <button className="ghost-button" onClick={() => stopMedia()} type="button">
-                                Dừng thiết bị
-                            </button>
-                            {canManage ? (
-                                <button className="delete-button outline" onClick={onToggleOnlineLive} type="button">
-                                    Kết thúc lớp
-                                </button>
-                            ) : (
-                                <button className="delete-button outline" onClick={leaveRoom} type="button">
-                                    Rời phòng
-                                </button>
-                            )}
-                        </div>
-                    </div>
-
-                    <aside className="classroom-side-rail">
-                        <ClassMembersPanel auth={auth} peers={peerList} />
-                        <ClassChatPanel
-                            disabled={!canManage && !onlineClass.isLive}
-                            messages={chatMessages}
-                            onClearChat={onClearChat}
-                            onSendMessage={onSendChatMessage}
-                            showManageActions={canManage}
-                        />
-                    </aside>
-                </div>
-            )}
-        </section>
-    )
-}
-
-function RemoteVideoTile({ peer }) {
-    const videoRef = useRef(null)
-
-    useEffect(() => {
-        if (videoRef.current) {
-            videoRef.current.srcObject = peer.stream || null
-        }
-    }, [peer.stream])
-
-    return (
-        <div className="video-tile">
-            <video autoPlay playsInline ref={videoRef} />
-            {!peer.stream && <span>Đang chờ video</span>}
-            <strong>{peer.displayName}</strong>
-            <small>{peer.connectionState || 'new'}</small>
-        </div>
-    )
-}
-
-function ClassMembersPanel({ auth, peers }) {
-    return (
-        <section className="class-members-panel">
-            <div className="panel-title">
-                <h2>Thành viên</h2>
-                <span className="badge-count">{peers.length + 1}</span>
-            </div>
-            <div className="member-list">
-                <div className="member-row active">
-                    <span>{auth?.displayName || auth?.username || 'Bạn'}</span>
-                    <small>Bạn</small>
-                </div>
-                {peers.map((peer) => (
-                    <div className="member-row" key={peer.connectionId}>
-                        <span>{peer.displayName}</span>
-                        <small>{peer.connectionState || 'online'}</small>
-                    </div>
-                ))}
-            </div>
-        </section>
+        <OnlineClassRoom
+            auth={auth}
+            canManage={canManage}
+            chatDisabled={!canManage && !onlineClass.isLive}
+            chatMessages={chatMessages}
+            onClearChat={onClearChat}
+            onRealtimeEvent={onRealtimeEvent}
+            onSendChatMessage={onSendChatMessage}
+        />
     )
 }
 
@@ -3491,7 +3055,13 @@ function StudentAssignmentPanel({ assignedStudentIds, onToggleAssignedStudent, s
     )
 }
 
-function ScreenMonitoringPanel({ sessions, loading }) {
+function ScreenMonitoringPanel({ auth, sessions, loading }) {
+    const [selectedSessionId, setSelectedSessionId] = useState('')
+    const selectedSession = useMemo(
+        () => sessions.find((session) => session.sessionId === selectedSessionId) || null,
+        [selectedSessionId, sessions],
+    )
+
     return (
         <section className="monitor-panel">
             <div className="panel-title">
@@ -3504,37 +3074,146 @@ function ScreenMonitoringPanel({ sessions, loading }) {
                 </div>
             ) : (
                 <div className="monitor-grid">
-                    {sessions.map((session) => (
-                        <article className="monitor-card" key={session.sessionId}>
-                            <div className="monitor-card-head">
-                                <div>
-                                    <strong>{session.studentName}</strong>
-                                    <span>{formatDateTime(session.lastSeenAt)}</span>
-                                </div>
-                                <span className={session.isActive ? 'status-chip' : 'status-chip warning'}>
-                                    {session.isActive ? 'Đang hoạt động' : 'Không hoạt động'}
-                                </span>
-                            </div>
-                            <div className="monitor-preview">
-                                {session.lastImageDataUrl ? (
-                                    <img alt={`Màn hình của ${session.studentName}`} src={session.lastImageDataUrl} />
-                                ) : (
-                                    <span>Chưa có ảnh chụp</span>
-                                )}
-                            </div>
-                            <div className="monitor-events">
-                                {session.events.map((event) => (
-                                    <div className="monitor-event" key={event.id}>
-                                        <span>{getMonitorEventText(event.eventType)}</span>
-                                        <time>{formatDateTime(event.createdAt)}</time>
+                    {sessions.map((session) => {
+                        const violationCount = getMonitorViolationCount(session)
+                        const hasWarning = violationCount > 0 || EXAM_VIOLATION_EVENT_TYPES.has(session.lastEventType)
+                        return (
+                            <article
+                                className={`monitor-card ${selectedSessionId === session.sessionId ? 'selected' : ''}`}
+                                key={session.sessionId}
+                            >
+                                <div className="monitor-card-head">
+                                    <div>
+                                        <strong>{session.studentName}</strong>
+                                        <span>{formatDateTime(session.lastSeenAt)}</span>
                                     </div>
-                                ))}
-                            </div>
-                        </article>
+                                    <span className={hasWarning ? 'status-chip danger' : session.isActive ? 'status-chip' : 'status-chip warning'}>
+                                        {hasWarning
+                                            ? `${Math.max(violationCount, 1)} cảnh báo`
+                                            : session.isActive
+                                                ? 'Đang thi'
+                                                : 'Không hoạt động'}
+                                    </span>
+                                </div>
+                                <div className="monitor-preview">
+                                    {session.lastImageDataUrl ? (
+                                        <img alt={`Màn hình của ${session.studentName}`} src={session.lastImageDataUrl} />
+                                    ) : (
+                                        <span>Chưa có ảnh chụp</span>
+                                    )}
+                                </div>
+                                <div className="monitor-events">
+                                    {session.events.map((event) => (
+                                        <div
+                                            className={`monitor-event ${EXAM_VIOLATION_EVENT_TYPES.has(event.eventType) ? 'warning' : ''}`}
+                                            key={event.id}
+                                        >
+                                            <span>{getMonitorEventText(event.eventType)}</span>
+                                            <time>{formatDateTime(event.createdAt)}</time>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button
+                                    className="primary-button full-width"
+                                    onClick={() => setSelectedSessionId(session.sessionId)}
+                                    type="button"
+                                >
+                                    Xem trực tiếp
+                                </button>
+                            </article>
+                        )
+                    })}
+                </div>
+            )}
+            {selectedSession && (
+                <ExamMonitorLivePanel
+                    auth={auth}
+                    onClose={() => setSelectedSessionId('')}
+                    session={selectedSession}
+                />
+            )}
+        </section>
+    )
+}
+
+function ExamMonitorLivePanel({ auth, onClose, session }) {
+    const roomId = useMemo(
+        () => createExamMonitorRoomId(session.testId, session.sessionId),
+        [session.sessionId, session.testId],
+    )
+    const [liveError, setLiveError] = useState('')
+    const {
+        isJoined,
+        joinMeeting,
+        leaveMeeting,
+        mediaError,
+        peerList,
+    } = useOnlineClassWebRTC({
+        auth,
+        roomId,
+        enabled: Boolean(auth?.accessToken),
+        autoStartMedia: false,
+        mediaConstraints: null,
+        receiveOnly: true,
+        onRoomError: setLiveError,
+    })
+
+    useEffect(() => {
+        joinMeeting(roomId)
+        return () => {
+            leaveMeeting()
+        }
+    }, [joinMeeting, leaveMeeting, roomId])
+
+    const streamPeers = peerList.filter((peer) => peer.stream)
+
+    return (
+        <div className="monitor-live-panel">
+            <div className="monitor-live-head">
+                <div>
+                    <p className="eyebrow">Live screen</p>
+                    <h3>{session.studentName}</h3>
+                    <span>{isJoined ? 'Đang kết nối WebRTC' : 'Đang vào phòng giám sát'}</span>
+                </div>
+                <button className="ghost-button" onClick={onClose} type="button">
+                    Đóng
+                </button>
+            </div>
+            {(liveError || mediaError) && (
+                <p className="monitor-live-alert" role="alert">
+                    {liveError || mediaError}
+                </p>
+            )}
+            {streamPeers.length === 0 ? (
+                <div className="monitor-live-empty">
+                    <strong>Đang chờ màn hình của học viên</strong>
+                    <span>Học viên cần đang làm bài và còn bật chia sẻ màn hình.</span>
+                </div>
+            ) : (
+                <div className="monitor-live-grid">
+                    {streamPeers.map((peer) => (
+                        <MonitorLiveVideo key={peer.connectionId} peer={peer} studentName={session.studentName} />
                     ))}
                 </div>
             )}
-        </section>
+        </div>
+    )
+}
+
+function MonitorLiveVideo({ peer, studentName }) {
+    const videoRef = useRef(null)
+
+    useEffect(() => {
+        if (videoRef.current) {
+            videoRef.current.srcObject = peer.stream || null
+        }
+    }, [peer.stream])
+
+    return (
+        <div className="monitor-live-video">
+            <video autoPlay playsInline ref={videoRef} />
+            <span>{studentName || peer.displayName}</span>
+        </div>
     )
 }
 
