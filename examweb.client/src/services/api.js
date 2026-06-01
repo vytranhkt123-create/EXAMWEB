@@ -123,7 +123,7 @@ export function onlineClassApi(path = '', options = {}) {
 export function getOnlineClassSocketUrl(session) {
     if (!session?.accessToken) return ''
     const url = new URL('/ws/online-class', API_BASE_URL || window.location.origin)
-    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    url.protocol = 'wss:'
     url.searchParams.set('access_token', session.accessToken)
     return url.toString()
 }

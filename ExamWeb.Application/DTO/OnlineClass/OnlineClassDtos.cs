@@ -73,12 +73,14 @@ namespace ExamWeb.Application.DTO.OnlineClass
         public int? AuthorAccountId { get; set; }
         public string AuthorName { get; set; } = string.Empty;
         public string Role { get; set; } = string.Empty;
+        public string? RoomId { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
     public class SendChatMessageRequest
     {
         public string Text { get; set; } = string.Empty;
+        public string? RoomId { get; set; }
     }
 
     public class OnlineClassRoomDto
@@ -93,12 +95,24 @@ namespace ExamWeb.Application.DTO.OnlineClass
         public DateTime? UpdatedAt { get; set; }
         public int MemberCount { get; set; }
         public bool IsMember { get; set; }
+        public IReadOnlyList<int> MemberAccountIds { get; set; } = Array.Empty<int>();
     }
 
     public class CreateOnlineClassRoomRequest
     {
         public string Name { get; set; } = string.Empty;
         public string? Description { get; set; }
+    }
+
+    public class UpdateOnlineClassRoomRequest
+    {
+        public string Name { get; set; } = string.Empty;
+        public string? Description { get; set; }
+    }
+
+    public class SetOnlineClassRoomLiveRequest
+    {
+        public bool IsLive { get; set; }
     }
 
     public class AssignClassRoomMembersRequest

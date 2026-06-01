@@ -1,9 +1,25 @@
 import { useState } from 'react'
 import { formatDateTime } from '../../utils/datetime'
 
+function MemberAvatar({ name, speaking = false }) {
+    const initials = String(name || 'User')
+        .trim()
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase())
+        .join('') || 'U'
+
+    return (
+        <span className={`meet-member-avatar ${speaking ? 'speaking' : ''}`} aria-hidden="true">
+            {initials}
+        </span>
+    )
+}
+
 export function RoomSidebar({
     auth,
     chatDisabled = false,
+    chatError = '',
     messages = [],
     onClearChat,
     peerList = [],
@@ -13,15 +29,15 @@ export function RoomSidebar({
     const [messageText, setMessageText] = useState('')
     const [activeTab, setActiveTab] = useState('participants')
 
-    function handleSubmit(event) {
+    async function handleSubmit(event) {
         event.preventDefault()
         if (!messageText.trim() || chatDisabled) return
-        onSendMessage(messageText)
+        await onSendMessage?.(messageText)
         setMessageText('')
     }
 
     return (
-        <aside className="meet-sidebar" aria-label="Thanh bên phòng học">
+        <aside className="meet-sidebar" aria-label="Room sidebar">
             <div className="meet-sidebar-tabs" role="tablist">
                 <button
                     aria-selected={activeTab === 'participants'}
@@ -30,7 +46,7 @@ export function RoomSidebar({
                     role="tab"
                     type="button"
                 >
-                    Thành viên ({peerList.length + 1})
+                    People ({peerList.length + 1})
                 </button>
                 <button
                     aria-selected={activeTab === 'chat'}
@@ -47,13 +63,15 @@ export function RoomSidebar({
                 <div className="meet-sidebar-panel" role="tabpanel">
                     <ul className="meet-member-list">
                         <li className="meet-member-item meet-member-item--self">
-                            <span>{auth?.displayName || auth?.username || 'Bạn'}</span>
-                            <small>Bạn · Host</small>
+                            <MemberAvatar name={auth?.displayName || auth?.username || 'You'} />
+                            <span>{auth?.displayName || auth?.username || 'You'}</span>
+                            <small>You</small>
                         </li>
                         {peerList.map((peer) => (
-                            <li className="meet-member-item" key={peer.connectionId}>
+                            <li className={`meet-member-item ${peer.isSpeaking ? 'is-speaking' : ''}`} key={peer.connectionId}>
+                                <MemberAvatar name={peer.displayName} speaking={peer.isSpeaking} />
                                 <span>{peer.displayName}</span>
-                                <small>{peer.connectionState || 'online'}</small>
+                                <small>{peer.isSpeaking ? 'Speaking' : peer.connectionState || 'online'}</small>
                             </li>
                         ))}
                     </ul>
@@ -61,8 +79,9 @@ export function RoomSidebar({
             ) : (
                 <div className="meet-sidebar-panel meet-sidebar-panel--chat" role="tabpanel">
                     <div className="meet-chat-list" role="log">
+                        {chatError && <p className="meet-chat-error" role="alert">{chatError}</p>}
                         {messages.length === 0 ? (
-                            <p className="meet-chat-empty">Chưa có tin nhắn</p>
+                            <p className="meet-chat-empty">No messages yet</p>
                         ) : (
                             messages.map((message) => (
                                 <article className="meet-chat-message" key={message.id}>
@@ -81,7 +100,7 @@ export function RoomSidebar({
                         <textarea
                             disabled={chatDisabled}
                             onChange={(event) => setMessageText(event.target.value)}
-                            placeholder={chatDisabled ? 'Chat tạm khóa' : 'Nhập tin nhắn…'}
+                            placeholder={chatDisabled ? 'Chat is locked' : 'Message this room'}
                             rows={3}
                             value={messageText}
                         />
@@ -93,7 +112,7 @@ export function RoomSidebar({
                                     onClick={onClearChat}
                                     type="button"
                                 >
-                                    Xóa chat
+                                    Clear
                                 </button>
                             )}
                             <button
@@ -101,7 +120,7 @@ export function RoomSidebar({
                                 disabled={chatDisabled || !messageText.trim()}
                                 type="submit"
                             >
-                                Gửi
+                                Send
                             </button>
                         </div>
                     </form>

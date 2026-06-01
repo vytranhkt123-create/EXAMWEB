@@ -11,8 +11,19 @@ export const DEFAULT_RTC_ICE_SERVERS = [
 
 export function normalizeBaseUrl(value) {
     const rawValue = String(value || '').trim()
-    if (!rawValue) return window.location.origin
-    return rawValue.replace(/\/+$/, '')
+    const fallback = window.location.origin
+    const baseValue = (rawValue || fallback).replace(/\/+$/, '')
+
+    try {
+        const url = new URL(baseValue)
+        const isLocalHost = ['localhost', '127.0.0.1', '::1'].includes(url.hostname)
+        if (url.protocol === 'http:' && !isLocalHost) {
+            url.protocol = 'https:'
+        }
+        return url.toString().replace(/\/+$/, '')
+    } catch {
+        return baseValue
+    }
 }
 
 export function parseRtcIceServers(value) {

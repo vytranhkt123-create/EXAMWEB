@@ -13,8 +13,10 @@ namespace ExamWeb.Infrastructure.Data.Configurations
             builder.Property(x => x.Text).IsRequired().HasMaxLength(1000);
             builder.Property(x => x.AuthorName).IsRequired().HasMaxLength(120);
             builder.Property(x => x.Role).IsRequired().HasMaxLength(30);
+            builder.Property(x => x.RoomId).HasMaxLength(80);
             builder.Property(x => x.CreatedAt).IsRequired();
             builder.HasIndex(x => x.CreatedAt);
+            builder.HasIndex(x => new { x.RoomId, x.CreatedAt });
         }
     }
 }

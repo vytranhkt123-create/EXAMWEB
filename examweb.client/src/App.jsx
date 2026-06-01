@@ -4,6 +4,7 @@ import { LoginView } from './components/LoginView'
 import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConfig'
 import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi } from './services/api'
 import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
+import { createExamMonitorRoomId, useExamProctoring } from './hooks/useExamProctoring'
 import { useOnlineClassWebRTC } from './hooks/useOnlineClassWebRTC'
 import { clearSession, getModeForSession, getPathForMode, getStoredSession, saveSession } from './services/session'
 import { dataUrlToBlob, readFileAsDataUrl } from './utils/file'
@@ -50,19 +51,6 @@ const ADMIN_TEST_TABS = [
     { id: 'history', label: 'Lịch sử' },
     { id: 'monitoring', label: 'Theo dõi' },
 ]
-
-const EXAM_SCREEN_SHARE_CONSTRAINTS = {
-    audio: false,
-    video: {
-        frameRate: { ideal: 8, max: 15 },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-    },
-}
-
-function createExamMonitorRoomId(testId, sessionId) {
-    return `exam-monitor:${testId}:${sessionId}`
-}
 
 async function enterExamFullscreen(element) {
     const target = element || document.documentElement
@@ -126,13 +114,6 @@ function formatDateTime(value) {
     }).format(new Date(value))
 }
 
-function createSessionId() {
-    if (window.crypto?.randomUUID) {
-        return window.crypto.randomUUID()
-    }
-    return `monitor-${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
 function getMonitorEventText(eventType) {
     const labels = {
         FullscreenExited: 'Thoát toàn màn hình',
@@ -173,10 +154,6 @@ function App() {
     const [result, setResult] = useState(null)
     const [startedAt, setStartedAt] = useState(null)
     const [timeLeft, setTimeLeft] = useState(null)
-    const [monitoringSessionId, setMonitoringSessionId] = useState('')
-    const [examMonitorRoomId, setExamMonitorRoomId] = useState('')
-    const [monitoringStatus, setMonitoringStatus] = useState('idle')
-    const [monitoringMessage, setMonitoringMessage] = useState('')
     const [newTestName, setNewTestName] = useState('')
     const [newDurationMinutes, setNewDurationMinutes] = useState(30)
     const [editTestName, setEditTestName] = useState('')
@@ -206,41 +183,26 @@ function App() {
     const [saving, setSaving] = useState(false)
     const [error, setError] = useState('')
     const submittingRef = useRef(false)
-    const screenStreamRef = useRef(null)
-    const screenVideoRef = useRef(null)
     const examShellRef = useRef(null)
-    const examMonitorRef = useRef({ testId: '', sessionId: '' })
-    const recordScreenMonitorEventRef = useRef(() => {})
     const mode = getModeForSession(auth)
 
     const {
-        joinMeeting: joinExamMonitorRoom,
-        leaveMeeting: leaveExamMonitorRoom,
-        sendRoomEvent: sendExamMonitorEvent,
-        startScreenShare: startExamScreenShare,
-    } = useOnlineClassWebRTC({
+        message: monitoringMessage,
+        recordEvent: recordScreenMonitorEvent,
+        restart: restartScreenMonitoring,
+        sessionId: monitoringSessionId,
+        start: startScreenMonitoring,
+        status: monitoringStatus,
+        stop: stopScreenStream,
+    } = useExamProctoring({
         auth,
-        roomId: examMonitorRoomId,
-        enabled: Boolean(auth?.accessToken && mode !== 'admin'),
-        autoStartMedia: false,
-        mediaConstraints: null,
-        screenShareConstraints: EXAM_SCREEN_SHARE_CONSTRAINTS,
-        onRoomError: (message) => {
-            setMonitoringMessage(message || 'Không kết nối được phòng giám sát')
-        },
-        onScreenShareStopped: () => {
-            const { testId, sessionId } = examMonitorRef.current
-            if (!testId || !sessionId || submittingRef.current) return
-            setMonitoringStatus('stopped')
-            setMonitoringMessage('Học viên đã dừng chia sẻ màn hình')
-            setFullscreenWarning('Cảnh báo: Bạn đã dừng chia sẻ màn hình. Hãy bật lại để tiếp tục làm bài.')
-            recordScreenMonitorEventRef.current(
-                testId,
-                sessionId,
-                'ScreenShareStopped',
-                'Học viên đã dừng chia sẻ màn hình',
-            )
-        },
+        enabled: Boolean(auth?.accessToken),
+        isSubmittedRef: submittingRef,
+        mode,
+        onError: (err) => setError(err.message),
+        onWarning: setFullscreenWarning,
+        result,
+        studentTest,
     })
 
     const toggleTheme = useCallback(() => {
@@ -345,83 +307,10 @@ function App() {
         ])
     }, [loadChatMessages, loadMaterials, loadOnlineClass, loadWhiteboardSnapshots])
 
-    const stopScreenStream = useCallback(() => {
-        if (screenStreamRef.current) {
-            screenStreamRef.current.getTracks().forEach((track) => track.stop())
-        }
-        screenStreamRef.current = null
-        screenVideoRef.current = null
-        setExamMonitorRoomId('')
-        examMonitorRef.current = { testId: '', sessionId: '' }
-        leaveExamMonitorRoom()
-    }, [leaveExamMonitorRoom])
-
-    const recordScreenMonitorEvent = useCallback(async (testId, sessionId, eventType, message, imageDataUrl = null) => {
-        if (!testId || !sessionId) return
-
-        const payload = {
-            testId,
-            sessionId,
-            eventType,
-            message,
-            imageDataUrl,
-        }
-
-        if (sendExamMonitorEvent('exam-monitor-event', payload)) {
-            return
-        }
-
-        try {
-            await api(`/${testId}/monitoring`, {
-                method: 'POST',
-                body: JSON.stringify(payload),
-            })
-        } catch (err) {
-            setMonitoringMessage(err.message)
-        }
-    }, [sendExamMonitorEvent])
-
-    useEffect(() => {
-        recordScreenMonitorEventRef.current = recordScreenMonitorEvent
-    }, [recordScreenMonitorEvent])
-
-    const captureScreenImage = useCallback(() => {
-        const video = screenVideoRef.current
-        if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-            return null
-        }
-
-        const canvas = document.createElement('canvas')
-        const width = 480
-        const height = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * width))
-        canvas.width = width
-        canvas.height = height
-        const context = canvas.getContext('2d')
-        if (!context) return null
-        context.drawImage(video, 0, 0, width, height)
-        return canvas.toDataURL('image/jpeg', 0.58)
-    }, [])
-
-    const sendScreenSnapshot = useCallback(async () => {
-        if (!studentTest || !monitoringSessionId || result || monitoringStatus !== 'active') return
-
-        const imageDataUrl = captureScreenImage()
-        if (!imageDataUrl) return
-
-        await recordScreenMonitorEvent(
-            studentTest.id,
-            monitoringSessionId,
-            'Snapshot',
-            'Ảnh chụp màn hình định kỳ',
-            imageDataUrl,
-        )
-    }, [captureScreenImage, monitoringSessionId, monitoringStatus, recordScreenMonitorEvent, result, studentTest])
-
     const reportExamViolation = useCallback((eventType, message, warning) => {
         if (!studentTest || !monitoringSessionId || result || submittingRef.current) return
 
         setFullscreenWarning(warning)
-        setMonitoringMessage(message)
         recordScreenMonitorEvent(studentTest.id, monitoringSessionId, eventType, message)
     }, [monitoringSessionId, recordScreenMonitorEvent, result, studentTest])
 
@@ -561,63 +450,6 @@ function App() {
     }, [auth, loadChatMessages, loadOnlineClass])
 
     useEffect(() => {
-        if (!studentTest || !monitoringSessionId || result || monitoringStatus !== 'active') return undefined
-
-        const initialSnapshot = window.setTimeout(sendScreenSnapshot, 1600)
-        const interval = window.setInterval(sendScreenSnapshot, 20000)
-
-        return () => {
-            window.clearTimeout(initialSnapshot)
-            window.clearInterval(interval)
-        }
-    }, [monitoringSessionId, monitoringStatus, result, sendScreenSnapshot, studentTest])
-
-    useEffect(() => {
-        if (!studentTest || !monitoringSessionId || result) return undefined
-
-        const reportVisibility = () => {
-            if (document.hidden) {
-                reportExamViolation(
-                    'TabHidden',
-                    'Học viên rời khỏi tab làm bài',
-                    'Cảnh báo: Bạn đã rời khỏi tab làm bài. Hành vi này đã được ghi nhận.',
-                )
-                return
-            }
-
-            recordScreenMonitorEvent(studentTest.id, monitoringSessionId, 'TabVisible', 'Học viên quay lại tab làm bài')
-        }
-
-        const reportBlur = () => {
-            reportExamViolation(
-                'WindowBlur',
-                'Cửa sổ làm bài mất focus',
-                'Cảnh báo: Cửa sổ làm bài đã mất focus. Hành vi này đã được ghi nhận.',
-            )
-        }
-
-        document.addEventListener('visibilitychange', reportVisibility)
-        window.addEventListener('blur', reportBlur)
-
-        return () => {
-            document.removeEventListener('visibilitychange', reportVisibility)
-            window.removeEventListener('blur', reportBlur)
-        }
-    }, [monitoringSessionId, recordScreenMonitorEvent, reportExamViolation, result, studentTest])
-
-    useEffect(() => {
-        if (!result) return undefined
-
-        const timer = window.setTimeout(() => {
-            stopScreenStream()
-            setMonitoringStatus('submitted')
-            setMonitoringMessage('Đã nộp bài')
-        }, 0)
-
-        return () => window.clearTimeout(timer)
-    }, [result, stopScreenStream])
-
-    useEffect(() => {
         if (!studentTest || result || studentTest.questions.length === 0 || timeLeft === null) return undefined
 
         if (timeLeft <= 0) {
@@ -719,75 +551,6 @@ function App() {
         return () => window.clearInterval(interval)
     }, [adminTest, adminTestTab, loadScreenMonitoring, mode])
 
-    async function attachScreenPreview(stream) {
-        const video = document.createElement('video')
-        video.muted = true
-        video.playsInline = true
-        video.srcObject = stream
-        await video.play()
-
-        screenStreamRef.current = stream
-        screenVideoRef.current = video
-    }
-
-    async function startScreenMonitoring(testId) {
-        if (!navigator.mediaDevices?.getDisplayMedia) {
-            throw new Error('Trình duyệt chưa hỗ trợ chia sẻ màn hình')
-        }
-
-        const sessionId = createSessionId()
-        const roomId = createExamMonitorRoomId(testId, sessionId)
-        examMonitorRef.current = { testId, sessionId }
-        setExamMonitorRoomId(roomId)
-        setMonitoringSessionId(sessionId)
-        setMonitoringStatus('starting')
-        setMonitoringMessage('Đang kết nối phòng giám sát')
-
-        await joinExamMonitorRoom(roomId)
-        const stream = await startExamScreenShare()
-        if (!stream) {
-            throw new Error('Cần bật chia sẻ màn hình để bắt đầu làm bài')
-        }
-
-        await attachScreenPreview(stream)
-        setMonitoringSessionId(sessionId)
-        setMonitoringStatus('active')
-        setMonitoringMessage('Đang chia sẻ màn hình')
-
-        return sessionId
-    }
-
-    async function restartScreenMonitoring() {
-        if (!studentTest || !monitoringSessionId) return
-
-        setError('')
-        setMonitoringMessage('Đang bật lại chia sẻ màn hình')
-
-        try {
-            const stream = await startExamScreenShare()
-            if (!stream) {
-                throw new Error('Cần bật chia sẻ màn hình để tiếp tục làm bài')
-            }
-
-            await attachScreenPreview(stream)
-            setMonitoringStatus('active')
-            setMonitoringMessage('Đang chia sẻ màn hình')
-            setFullscreenWarning('')
-            await recordScreenMonitorEvent(
-                studentTest.id,
-                monitoringSessionId,
-                'ScreenShareStarted',
-                'Học viên bật lại chia sẻ màn hình',
-            )
-        } catch (err) {
-            if (err?.name === 'NotAllowedError') {
-                setError('Cần bật chia sẻ màn hình để tiếp tục làm bài')
-            } else {
-                setError(err.message)
-            }
-        }
-    }
-
     async function confirmStartExam(forcedTestId = pendingTestId) {
         if (!forcedTestId) return
 
@@ -801,19 +564,15 @@ function App() {
         try {
             const testId = forcedTestId
             await enterExamFullscreen(document.documentElement)
-            const sessionId = await startScreenMonitoring(testId)
+            await startScreenMonitoring(testId)
             const data = await api(`/${testId}/take`)
             setStudentTest(data)
             setStartedAt(new Date())
             setTimeLeft((data.durationMinutes || 30) * 60)
             setShowMonitorDialog(false)
             setPendingTestId(null)
-            await recordScreenMonitorEvent(testId, sessionId, 'ScreenShareStarted', 'Bắt đầu theo dõi màn hình')
         } catch (err) {
             stopScreenStream()
-            setMonitoringSessionId('')
-            setMonitoringStatus('idle')
-            setMonitoringMessage('')
             if (err?.name === 'NotAllowedError') {
                 setError('Cần bật toàn màn hình và chia sẻ màn hình để bắt đầu làm bài')
             } else if (!handleAuthFailure(err)) {
@@ -1348,11 +1107,6 @@ function App() {
         setResult(null)
         setStartedAt(null)
         setTimeLeft(null)
-        setMonitoringSessionId('')
-        setExamMonitorRoomId('')
-        setMonitoringStatus('idle')
-        setMonitoringMessage('')
-        examMonitorRef.current = { testId: '', sessionId: '' }
         setPendingTestId(null)
         setShowMonitorDialog(false)
         setShowSubmitConfirm(false)
@@ -2442,19 +2196,11 @@ function PdfPreview({ material }) {
 function OnlineClassPanel({
     auth,
     canManage = false,
-    chatMessages,
-    materials = [],
     onlineClass,
     onlineNotice,
-    onClearChat,
-    onDeleteWhiteboardSnapshot,
     onRealtimeEvent,
-    onSaveWhiteboard,
-    onSendChatMessage,
     onToggleOnlineLive,
     onUpdateOnlineClass,
-    onUseWhiteboardSnapshot,
-    whiteboardSnapshots,
 }) {
     function handleSettingsSubmit(event) {
         event.preventDefault()
@@ -2516,17 +2262,7 @@ function OnlineClassPanel({
                     <MeetingDevicePanel
                         auth={auth}
                         canManage={canManage}
-                        chatMessages={chatMessages}
-                        materials={materials}
-                        onClearChat={onClearChat}
-                        onDeleteWhiteboardSnapshot={onDeleteWhiteboardSnapshot}
                         onRealtimeEvent={onRealtimeEvent}
-                        onSaveWhiteboard={onSaveWhiteboard}
-                        onSendChatMessage={onSendChatMessage}
-                        onToggleOnlineLive={onToggleOnlineLive}
-                        onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
-                        onlineClass={onlineClass}
-                        whiteboardSnapshots={whiteboardSnapshots}
                     />
                 </div>
             </div>
@@ -2537,21 +2273,13 @@ function OnlineClassPanel({
 function MeetingDevicePanel({
     auth,
     canManage = false,
-    chatMessages = [],
-    onClearChat,
     onRealtimeEvent,
-    onSendChatMessage,
-    onlineClass,
 }) {
     return (
         <OnlineClassRoom
             auth={auth}
             canManage={canManage}
-            chatDisabled={!canManage && !onlineClass.isLive}
-            chatMessages={chatMessages}
-            onClearChat={onClearChat}
             onRealtimeEvent={onRealtimeEvent}
-            onSendChatMessage={onSendChatMessage}
         />
     )
 }

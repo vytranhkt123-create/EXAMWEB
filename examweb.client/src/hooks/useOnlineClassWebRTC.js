@@ -10,6 +10,20 @@ function stopStreamTracks(stream) {
     stream.getTracks().forEach((track) => track.stop())
 }
 
+function getAudioContextCtor() {
+    return window.AudioContext || window.webkitAudioContext
+}
+
+function getAudioLevel(dataArray) {
+    if (!dataArray.length) return 0
+    let sum = 0
+    for (const value of dataArray) {
+        const centered = value - 128
+        sum += centered * centered
+    }
+    return Math.min(1, Math.sqrt(sum / dataArray.length) / 64)
+}
+
 export function useOnlineClassWebRTC({
     auth,
     roomId,
@@ -28,6 +42,8 @@ export function useOnlineClassWebRTC({
     const streamRef = useRef(null)
     const screenStreamRef = useRef(null)
     const peerConnectionsRef = useRef(new Map())
+    const pendingIceCandidatesRef = useRef(new Map())
+    const audioMonitorStopsRef = useRef(new Map())
     const connectionIdRef = useRef('')
     const isJoinedRef = useRef(false)
     const roomIdRef = useRef('')
@@ -45,6 +61,8 @@ export function useOnlineClassWebRTC({
     const [mediaError, setMediaError] = useState('')
     const [micOn, setMicOn] = useState(false)
     const [peers, setPeers] = useState({})
+    const [localAudioLevel, setLocalAudioLevel] = useState(0)
+    const [isLocalSpeaking, setIsLocalSpeaking] = useState(false)
 
     const peerList = Object.values(peers)
 
@@ -91,6 +109,10 @@ export function useOnlineClassWebRTC({
             peerConnection.close()
             peerConnectionsRef.current.delete(connectionId)
         }
+        const stopAudioMonitor = audioMonitorStopsRef.current.get(connectionId)
+        stopAudioMonitor?.()
+        audioMonitorStopsRef.current.delete(connectionId)
+        pendingIceCandidatesRef.current.delete(connectionId)
         setPeers((current) => {
             const next = { ...current }
             delete next[connectionId]
@@ -98,9 +120,70 @@ export function useOnlineClassWebRTC({
         })
     }, [])
 
+    const stopAudioMonitor = useCallback((monitorId) => {
+        const stop = audioMonitorStopsRef.current.get(monitorId)
+        stop?.()
+        audioMonitorStopsRef.current.delete(monitorId)
+        if (monitorId === 'local') {
+            setLocalAudioLevel(0)
+            setIsLocalSpeaking(false)
+        }
+    }, [])
+
+    const startAudioMonitor = useCallback((monitorId, stream, { local = false } = {}) => {
+        const AudioContextCtor = getAudioContextCtor()
+        if (!AudioContextCtor || !stream?.getAudioTracks().some((track) => track.readyState === 'live')) {
+            return
+        }
+
+        stopAudioMonitor(monitorId)
+
+        const audioContext = new AudioContextCtor()
+        const source = audioContext.createMediaStreamSource(stream)
+        const analyser = audioContext.createAnalyser()
+        analyser.fftSize = 512
+        source.connect(analyser)
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount)
+        let frameId = 0
+        let stopped = false
+
+        const tick = () => {
+            if (stopped) return
+            analyser.getByteTimeDomainData(dataArray)
+            const audioLevel = getAudioLevel(dataArray)
+            const isSpeaking = audioLevel > 0.12
+
+            if (local) {
+                setLocalAudioLevel(audioLevel)
+                setIsLocalSpeaking(isSpeaking)
+            } else {
+                upsertPeer(monitorId, { audioLevel, isSpeaking })
+            }
+
+            frameId = window.requestAnimationFrame(tick)
+        }
+
+        tick()
+
+        audioMonitorStopsRef.current.set(monitorId, () => {
+            stopped = true
+            if (frameId) window.cancelAnimationFrame(frameId)
+            source.disconnect()
+            audioContext.close().catch(() => {})
+        })
+    }, [stopAudioMonitor, upsertPeer])
+
     const closePeerConnections = useCallback(() => {
         peerConnectionsRef.current.forEach((peerConnection) => peerConnection.close())
         peerConnectionsRef.current.clear()
+        pendingIceCandidatesRef.current.clear()
+        audioMonitorStopsRef.current.forEach((stop, monitorId) => {
+            if (monitorId !== 'local') stop()
+        })
+        Array.from(audioMonitorStopsRef.current.keys())
+            .filter((monitorId) => monitorId !== 'local')
+            .forEach((monitorId) => audioMonitorStopsRef.current.delete(monitorId))
         setPeers({})
     }, [])
 
@@ -133,6 +216,19 @@ export function useOnlineClassWebRTC({
         sendSignalToPeer('offer', connectionId, offer)
     }, [sendSignalToPeer])
 
+    const flushPendingIceCandidates = useCallback(async (connectionId) => {
+        const peerConnection = peerConnectionsRef.current.get(connectionId)
+        const pendingCandidates = pendingIceCandidatesRef.current.get(connectionId) || []
+        if (!peerConnection?.remoteDescription || pendingCandidates.length === 0) return
+
+        pendingIceCandidatesRef.current.delete(connectionId)
+        await Promise.all(
+            pendingCandidates.map((candidate) =>
+                peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {}),
+            ),
+        )
+    }, [])
+
     const createPeerConnection = useCallback((peer, shouldOffer = false) => {
         if (!isJoinedRef.current || !peer?.connectionId || peer.connectionId === connectionIdRef.current) {
             return null
@@ -155,6 +251,7 @@ export function useOnlineClassWebRTC({
         }
 
         peerConnection.ontrack = (event) => {
+            startAudioMonitor(peer.connectionId, event.streams[0])
             upsertPeer(peer.connectionId, {
                 ...peer,
                 stream: event.streams[0],
@@ -180,7 +277,7 @@ export function useOnlineClassWebRTC({
         }
 
         return peerConnection
-    }, [addOutgoingTracks, createAndSendOffer, sendSignalToPeer, upsertPeer])
+    }, [addOutgoingTracks, createAndSendOffer, sendSignalToPeer, startAudioMonitor, upsertPeer])
 
     const handleMeetingPeers = useCallback((meetingPeers) => {
         meetingPeers.forEach((peer) => createPeerConnection(peer, false))
@@ -199,22 +296,30 @@ export function useOnlineClassWebRTC({
         const peerConnection = createPeerConnection(peer, false)
         if (!peerConnection) return
         await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
+        await flushPendingIceCandidates(peer.connectionId)
         const answer = await peerConnection.createAnswer()
         await peerConnection.setLocalDescription(answer)
         sendSignalToPeer('answer', peer.connectionId, answer)
-    }, [createPeerConnection, sendSignalToPeer])
+    }, [createPeerConnection, flushPendingIceCandidates, sendSignalToPeer])
 
     const handleAnswer = useCallback(async (payload) => {
         const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
         if (peerConnection) {
             await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
+            await flushPendingIceCandidates(payload.fromConnectionId)
         }
-    }, [])
+    }, [flushPendingIceCandidates])
 
     const handleIceCandidate = useCallback(async (payload) => {
         const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
         if (peerConnection && payload.payload) {
-            await peerConnection.addIceCandidate(new RTCIceCandidate(payload.payload))
+            if (!peerConnection.remoteDescription) {
+                const pendingCandidates = pendingIceCandidatesRef.current.get(payload.fromConnectionId) || []
+                pendingCandidates.push(payload.payload)
+                pendingIceCandidatesRef.current.set(payload.fromConnectionId, pendingCandidates)
+                return
+            }
+            await peerConnection.addIceCandidate(new RTCIceCandidate(payload.payload)).catch(() => {})
         }
     }, [])
 
@@ -286,6 +391,7 @@ export function useOnlineClassWebRTC({
         screenStreamRef.current = null
         stopStreamTracks(streamRef.current)
         streamRef.current = null
+        stopAudioMonitor('local')
 
         if (localVideoRef.current) localVideoRef.current.srcObject = null
         if (screenVideoRef.current) screenVideoRef.current.srcObject = null
@@ -303,7 +409,7 @@ export function useOnlineClassWebRTC({
         if (renegotiate) {
             await renegotiatePeers()
         }
-    }, [renegotiatePeers])
+    }, [renegotiatePeers, stopAudioMonitor])
 
     const startMedia = useCallback(async () => {
         if (!mediaConstraints) {
@@ -317,13 +423,27 @@ export function useOnlineClassWebRTC({
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia(mediaConstraints)
+            if (streamRef.current && streamRef.current !== stream) {
+                stopStreamTracks(streamRef.current)
+            }
             streamRef.current = stream
+            stream.getVideoTracks().forEach((track) => {
+                track.onended = () => setCameraOn(false)
+            })
+            stream.getAudioTracks().forEach((track) => {
+                track.onended = () => {
+                    setMicOn(false)
+                    setIsLocalSpeaking(false)
+                    setLocalAudioLevel(0)
+                }
+            })
             if (!isScreenSharing && localVideoRef.current) {
                 localVideoRef.current.srcObject = stream
             }
             setCameraOn(stream.getVideoTracks().some((track) => track.enabled))
             setMicOn(stream.getAudioTracks().some((track) => track.enabled))
             setMediaError('')
+            startAudioMonitor('local', stream, { local: true })
             attachLocalStreamToPeers(stream)
             await renegotiatePeers()
             return stream
@@ -331,7 +451,7 @@ export function useOnlineClassWebRTC({
             setMediaError('Không thể bật camera hoặc micro. Hãy kiểm tra quyền trình duyệt.')
             return null
         }
-    }, [attachLocalStreamToPeers, isScreenSharing, mediaConstraints, renegotiatePeers])
+    }, [attachLocalStreamToPeers, isScreenSharing, mediaConstraints, renegotiatePeers, startAudioMonitor])
 
     const stopScreenShare = useCallback(async ({ notify = false } = {}) => {
         stopStreamTracks(screenStreamRef.current)
@@ -400,6 +520,10 @@ export function useOnlineClassWebRTC({
             track.enabled = next
         })
         setMicOn(next)
+        if (!next) {
+            setIsLocalSpeaking(false)
+            setLocalAudioLevel(0)
+        }
         await renegotiatePeers()
     }, [micOn, renegotiatePeers, startMedia])
 
@@ -445,9 +569,11 @@ export function useOnlineClassWebRTC({
         cameraOn,
         connectionIdRef,
         isJoined,
+        isLocalSpeaking,
         isScreenSharing,
         joinMeeting,
         leaveMeeting,
+        localAudioLevel,
         localVideoRef,
         mediaError,
         micOn,

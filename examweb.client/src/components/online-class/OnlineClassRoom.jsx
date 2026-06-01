@@ -4,6 +4,7 @@ import { useOnlineClassWebRTC } from '../../hooks/useOnlineClassWebRTC'
 import { VideoGrid } from './VideoGrid'
 import { RoomControls } from './RoomControls'
 import { RoomSidebar } from './RoomSidebar'
+import { RoomManagementPanel } from './RoomManagementPanel'
 
 async function enterRoomFullscreen(element) {
     const target = element || document.documentElement
@@ -27,15 +28,13 @@ async function exitRoomFullscreen() {
 export function OnlineClassRoom({
     auth,
     canManage = false,
-    chatMessages = [],
     chatDisabled = false,
-    onClearChat,
     onLeaveRoom,
     onRealtimeEvent,
-    onSendChatMessage,
     onWhiteboardEvent,
 }) {
     const shellRef = useRef(null)
+    const realtimeEventHandlerRef = useRef(onRealtimeEvent)
     const [rooms, setRooms] = useState([])
     const [roomsLoading, setRoomsLoading] = useState(true)
     const [roomsError, setRoomsError] = useState('')
@@ -43,6 +42,9 @@ export function OnlineClassRoom({
     const [accessDenied, setAccessDenied] = useState('')
     const [sidebarOpen, setSidebarOpen] = useState(true)
     const [joining, setJoining] = useState(false)
+    const [roomChatMessages, setRoomChatMessages] = useState([])
+    const [roomChatLoading, setRoomChatLoading] = useState(false)
+    const [roomChatError, setRoomChatError] = useState('')
 
     const selectedRoom = useMemo(
         () => rooms.find((room) => room.id === selectedRoomId) || null,
@@ -56,6 +58,9 @@ export function OnlineClassRoom({
     )
 
     const leaveMeetingRef = useRef(async () => {})
+    const handleSocketRealtimeEvent = useCallback((type, payload) => {
+        realtimeEventHandlerRef.current?.(type, payload)
+    }, [])
 
     const handleRoomError = useCallback(async (message) => {
         setAccessDenied(message || 'Bạn không có quyền vào phòng học này')
@@ -66,6 +71,7 @@ export function OnlineClassRoom({
     const {
         cameraOn,
         isJoined,
+        isLocalSpeaking,
         isScreenSharing,
         joinMeeting,
         leaveMeeting,
@@ -84,13 +90,15 @@ export function OnlineClassRoom({
         roomId: selectedRoomId,
         enabled: Boolean(auth?.accessToken),
         onRoomError: handleRoomError,
-        onRealtimeEvent,
+        onRealtimeEvent: handleSocketRealtimeEvent,
         onWhiteboardEvent,
     })
 
-    leaveMeetingRef.current = leaveMeeting
+    useEffect(() => {
+        leaveMeetingRef.current = leaveMeeting
+    }, [leaveMeeting])
 
-    const loadRooms = useCallback(async () => {
+    const loadRooms = useCallback(async (preferredRoomId = '') => {
         setRoomsLoading(true)
         setRoomsError('')
         try {
@@ -98,6 +106,7 @@ export function OnlineClassRoom({
             const list = Array.isArray(data) ? data : []
             setRooms(list)
             setSelectedRoomId((current) => {
+                if (preferredRoomId && list.some((room) => room.id === preferredRoomId)) return preferredRoomId
                 if (current && list.some((room) => room.id === current)) return current
                 return list[0]?.id || ''
             })
@@ -110,8 +119,85 @@ export function OnlineClassRoom({
     }, [])
 
     useEffect(() => {
-        loadRooms()
+        const timer = window.setTimeout(() => {
+            loadRooms()
+        }, 0)
+        return () => window.clearTimeout(timer)
     }, [loadRooms])
+
+    const loadRoomChat = useCallback(async (roomId) => {
+        if (!roomId) {
+            setRoomChatMessages([])
+            return
+        }
+
+        setRoomChatLoading(true)
+        setRoomChatError('')
+        try {
+            const data = await onlineClassApi(`/chat?roomId=${encodeURIComponent(roomId)}`)
+            setRoomChatMessages(Array.isArray(data) ? data : [])
+        } catch (err) {
+            setRoomChatMessages([])
+            setRoomChatError(err.message || 'Could not load room chat')
+        } finally {
+            setRoomChatLoading(false)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!isJoined || !selectedRoomId) return undefined
+        const timer = window.setTimeout(() => {
+            loadRoomChat(selectedRoomId)
+        }, 0)
+        return () => window.clearTimeout(timer)
+    }, [isJoined, loadRoomChat, selectedRoomId])
+
+    const handleRealtimeRoomEvent = useCallback((type, payload) => {
+        if (type === 'chat-message' && payload?.id) {
+            if (!payload.roomId || payload.roomId === selectedRoomId) {
+                setRoomChatMessages((current) =>
+                    current.some((item) => item.id === payload.id)
+                        ? current
+                        : [...current, payload].slice(-160),
+                )
+            }
+            return
+        } else if (type === 'chat-cleared') {
+            if (!payload?.roomId || payload.roomId === selectedRoomId) {
+                setRoomChatMessages([])
+            }
+            return
+        } else if (type === 'online-class-rooms-updated') {
+            loadRooms(selectedRoomId)
+        }
+
+        onRealtimeEvent?.(type, payload)
+    }, [loadRooms, onRealtimeEvent, selectedRoomId])
+
+    useEffect(() => {
+        realtimeEventHandlerRef.current = handleRealtimeRoomEvent
+    }, [handleRealtimeRoomEvent])
+
+    const sendRoomChatMessage = useCallback(async (text) => {
+        const cleanText = text.trim()
+        if (!cleanText || !selectedRoomId) return
+
+        const message = await onlineClassApi('/chat', {
+            method: 'POST',
+            body: JSON.stringify({ text: cleanText, roomId: selectedRoomId }),
+        })
+        setRoomChatMessages((current) =>
+            current.some((item) => item.id === message.id)
+                ? current
+                : [...current, message].slice(-160),
+        )
+    }, [selectedRoomId])
+
+    const clearRoomChatMessages = useCallback(async () => {
+        if (!selectedRoomId || !window.confirm('Clear chat for this room?')) return
+        await onlineClassApi(`/chat?roomId=${encodeURIComponent(selectedRoomId)}`, { method: 'DELETE' })
+        setRoomChatMessages([])
+    }, [selectedRoomId])
 
     async function handleJoinRoom() {
         if (!selectedRoomId || !canJoinSelectedRoom) return
@@ -185,6 +271,7 @@ export function OnlineClassRoom({
                         <VideoGrid
                             auth={auth}
                             cameraOn={cameraOn}
+                            isLocalSpeaking={isLocalSpeaking}
                             isScreenSharing={isScreenSharing}
                             localVideoRef={localVideoRef}
                             peerList={peerList}
@@ -200,10 +287,11 @@ export function OnlineClassRoom({
                     {sidebarOpen && (
                         <RoomSidebar
                             auth={auth}
-                            chatDisabled={chatDisabled}
-                            messages={chatMessages}
-                            onClearChat={onClearChat}
-                            onSendMessage={onSendChatMessage}
+                            chatDisabled={chatDisabled || roomChatLoading || (!canManage && !selectedRoom.isLive)}
+                            chatError={roomChatError}
+                            messages={roomChatMessages}
+                            onClearChat={clearRoomChatMessages}
+                            onSendMessage={sendRoomChatMessage}
                             peerList={peerList}
                             showManageActions={canManage}
                         />
@@ -233,7 +321,7 @@ export function OnlineClassRoom({
                         Chỉ các phòng bạn được admin gán mới xuất hiện trong danh sách.
                     </p>
                 </div>
-                <button className="ghost-button" disabled={roomsLoading} onClick={loadRooms} type="button">
+                <button className="ghost-button" disabled={roomsLoading} onClick={() => loadRooms()} type="button">
                     Làm mới
                 </button>
             </header>
@@ -251,6 +339,18 @@ export function OnlineClassRoom({
                             : 'Liên hệ admin để được thêm vào phòng học.'}
                     </p>
                 </div>
+            )}
+
+            {canManage && (
+                <RoomManagementPanel
+                    onRoomsChanged={loadRooms}
+                    onSelectRoom={(roomId) => {
+                        setSelectedRoomId(roomId)
+                        setAccessDenied('')
+                    }}
+                    rooms={rooms}
+                    selectedRoomId={selectedRoomId}
+                />
             )}
 
             {rooms.length > 0 && (

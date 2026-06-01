@@ -326,11 +326,11 @@ namespace ExamWeb.Server.Services
                 return await CanAccessExamMonitorRoomAsync(dbContext, connection, examTestId);
             }
 
-            var roomExists = await dbContext.OnlineClassRooms
+            var room = await dbContext.OnlineClassRooms
                 .AsNoTracking()
-                .AnyAsync(x => x.Id == roomId);
+                .FirstOrDefaultAsync(x => x.Id == roomId);
 
-            if (!roomExists)
+            if (room == null)
             {
                 return false;
             }
@@ -345,7 +345,7 @@ namespace ExamWeb.Server.Services
                 return false;
             }
 
-            return await dbContext.ClassRoomMembers
+            return room.IsLive && await dbContext.ClassRoomMembers
                 .AsNoTracking()
                 .AnyAsync(x => x.RoomId == roomId && x.AccountId == connection.AccountId.Value);
         }

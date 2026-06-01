@@ -4,6 +4,7 @@ import { getOnlineClassSocketUrl } from '../services/api'
 const CLASS_EVENTS = new Set([
     'materials-updated',
     'online-class-updated',
+    'online-class-rooms-updated',
     'whiteboard-updated',
     'whiteboard-snapshots-updated',
     'chat-message',

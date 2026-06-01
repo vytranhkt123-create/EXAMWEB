@@ -287,6 +287,10 @@ namespace ExamWeb.Infrastructure.Data.Migrations
                         .HasMaxLength(30)
                         .HasColumnType("nvarchar(30)");
 
+                    b.Property<string>("RoomId")
+                        .HasMaxLength(80)
+                        .HasColumnType("nvarchar(80)");
+
                     b.Property<string>("Text")
                         .IsRequired()
                         .HasMaxLength(1000)
@@ -295,6 +299,8 @@ namespace ExamWeb.Infrastructure.Data.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CreatedAt");
+
+                    b.HasIndex("RoomId", "CreatedAt");
 
                     b.ToTable("OnlineChatMessages", (string)null);
                 });

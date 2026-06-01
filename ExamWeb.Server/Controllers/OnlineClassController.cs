@@ -106,10 +106,17 @@ namespace ExamWeb.Server.Controllers
         }
 
         [HttpGet("chat")]
-        public async Task<ActionResult<IReadOnlyList<ChatMessageDto>>> GetChatMessages(CancellationToken cancellationToken)
+        public async Task<ActionResult<IReadOnlyList<ChatMessageDto>>> GetChatMessages([FromQuery] string? roomId, CancellationToken cancellationToken)
         {
-            var messages = await _onlineClassService.GetChatMessagesAsync(cancellationToken);
-            return Ok(messages);
+            try
+            {
+                var messages = await _onlineClassService.GetChatMessagesAsync(roomId, cancellationToken);
+                return Ok(messages);
+            }
+            catch (DomainException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+            }
         }
 
         [HttpPost("chat")]
@@ -128,11 +135,11 @@ namespace ExamWeb.Server.Controllers
 
         [Authorize(Roles = "Admin")]
         [HttpDelete("chat")]
-        public async Task<IActionResult> ClearChatMessages(CancellationToken cancellationToken)
+        public async Task<IActionResult> ClearChatMessages([FromQuery] string? roomId, CancellationToken cancellationToken)
         {
             try
             {
-                await _onlineClassService.ClearChatMessagesAsync(cancellationToken);
+                await _onlineClassService.ClearChatMessagesAsync(roomId, cancellationToken);
                 return NoContent();
             }
             catch (DomainException ex)
@@ -159,6 +166,42 @@ namespace ExamWeb.Server.Controllers
         }
 
         [Authorize(Roles = "Admin")]
+        [HttpPut("rooms/{roomId}")]
+        public async Task<ActionResult<OnlineClassRoomDto>> UpdateRoom(
+            string roomId,
+            UpdateOnlineClassRoomRequest request,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var room = await _onlineClassService.UpdateRoomAsync(roomId, request, cancellationToken);
+                return room == null ? NotFound() : Ok(room);
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPost("rooms/{roomId}/live")]
+        public async Task<ActionResult<OnlineClassRoomDto>> SetRoomLive(
+            string roomId,
+            SetOnlineClassRoomLiveRequest request,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var room = await _onlineClassService.SetRoomLiveAsync(roomId, request.IsLive, cancellationToken);
+                return room == null ? NotFound() : Ok(room);
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Admin")]
         [HttpPost("rooms/{roomId}/members")]
         public async Task<ActionResult<AssignClassRoomMembersResultDto>> AssignRoomMembers(
             string roomId,
@@ -169,6 +212,39 @@ namespace ExamWeb.Server.Controllers
             {
                 var result = await _onlineClassService.AssignRoomMembersAsync(roomId, request, cancellationToken);
                 return Ok(result);
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpPut("rooms/{roomId}/members")]
+        public async Task<ActionResult<AssignClassRoomMembersResultDto>> ReplaceRoomMembers(
+            string roomId,
+            AssignClassRoomMembersRequest request,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var result = await _onlineClassService.ReplaceRoomMembersAsync(roomId, request, cancellationToken);
+                return Ok(result);
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [Authorize(Roles = "Admin")]
+        [HttpDelete("rooms/{roomId}")]
+        public async Task<IActionResult> DeleteRoom(string roomId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var deleted = await _onlineClassService.DeleteRoomAsync(roomId, cancellationToken);
+                return deleted ? NoContent() : NotFound();
             }
             catch (DomainException ex)
             {

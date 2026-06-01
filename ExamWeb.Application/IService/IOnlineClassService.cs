@@ -18,12 +18,16 @@ namespace ExamWeb.Application.IService
         Task<OnlineClassDto?> UseWhiteboardSnapshotAsync(string snapshotId, CancellationToken cancellationToken = default);
         Task<bool> DeleteWhiteboardSnapshotAsync(string snapshotId, CancellationToken cancellationToken = default);
 
-        Task<IReadOnlyList<ChatMessageDto>> GetChatMessagesAsync(CancellationToken cancellationToken = default);
+        Task<IReadOnlyList<ChatMessageDto>> GetChatMessagesAsync(string? roomId = null, CancellationToken cancellationToken = default);
         Task<ChatMessageDto> SendChatMessageAsync(SendChatMessageRequest request, CancellationToken cancellationToken = default);
-        Task ClearChatMessagesAsync(CancellationToken cancellationToken = default);
+        Task ClearChatMessagesAsync(string? roomId = null, CancellationToken cancellationToken = default);
 
         Task<OnlineClassRoomDto> CreateRoomAsync(CreateOnlineClassRoomRequest request, CancellationToken cancellationToken = default);
+        Task<OnlineClassRoomDto?> UpdateRoomAsync(string roomId, UpdateOnlineClassRoomRequest request, CancellationToken cancellationToken = default);
+        Task<OnlineClassRoomDto?> SetRoomLiveAsync(string roomId, bool isLive, CancellationToken cancellationToken = default);
         Task<AssignClassRoomMembersResultDto> AssignRoomMembersAsync(string roomId, AssignClassRoomMembersRequest request, CancellationToken cancellationToken = default);
+        Task<AssignClassRoomMembersResultDto> ReplaceRoomMembersAsync(string roomId, AssignClassRoomMembersRequest request, CancellationToken cancellationToken = default);
+        Task<bool> DeleteRoomAsync(string roomId, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<OnlineClassRoomDto>> GetAccessibleRoomsAsync(CancellationToken cancellationToken = default);
         Task<bool> CanAccessRoomAsync(string roomId, CancellationToken cancellationToken = default);
     }
