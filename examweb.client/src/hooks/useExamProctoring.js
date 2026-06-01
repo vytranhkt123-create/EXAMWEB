@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../services/api'
 import { useOnlineClassWebRTC } from './useOnlineClassWebRTC'
 
@@ -163,13 +163,6 @@ export function useExamProctoring({
         monitorRef.current = { testId, sessionId: nextSessionId }
         setRoomId(nextRoomId)
         setSessionId(nextSessionId)
-
-        if (!navigator.mediaDevices?.getDisplayMedia) {
-            setStatusMessage('active', 'Làm bài trên thiết bị di động (Không share màn hình)')
-            await recordEvent(testId, nextSessionId, 'MobileDevice', 'Học viên làm bài trên thiết bị không hỗ trợ share màn hình')
-            return nextSessionId
-        }
-
         setStatusMessage('starting', 'Connecting proctoring session')
 
         await joinMeeting(nextRoomId)
@@ -189,12 +182,6 @@ export function useExamProctoring({
     const restart = useCallback(async () => {
         const current = monitorRef.current
         if (!current.testId || !current.sessionId) return
-
-        if (!navigator.mediaDevices?.getDisplayMedia) {
-            setStatusMessage('active', 'Làm bài trên thiết bị di động')
-            onWarning?.('')
-            return
-        }
 
         try {
             setStatusMessage('starting', 'Restarting screen sharing')

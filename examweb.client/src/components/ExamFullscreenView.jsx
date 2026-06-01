@@ -25,9 +25,6 @@ export function ExamFullscreenView({
     studentTest,
     timeLeft,
 }) {
-    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const requireFullscreen = !isMobile;
-
     return (
         <div className="exam-fullscreen-shell" ref={examShellRef}>
             <header className="exam-fullscreen-topbar">
@@ -41,26 +38,10 @@ export function ExamFullscreenView({
                     <span className={`timer-pill ${timeLeft !== null && timeLeft <= 60 && !result ? 'danger' : ''}`}>
                         {result ? 'Đã nộp bài' : formatDuration(timeLeft)}
                     </span>
-                    {isExamRunning && ((requireFullscreen && !isFullscreen) || monitoringStatus !== 'active') && (
-                        <div className="exam-monitor-blocker" role="status">
-                            <strong>Chưa đủ điều kiện làm bài</strong>
-                            <span>
-                                {!isFullscreen && requireFullscreen
-                                    ? 'Bạn cần quay lại chế độ toàn màn hình để tiếp tục chọn đáp án.'
-                                    : monitoringStatus === 'stopped'
-                                        ? 'Bạn cần bật lại chia sẻ màn hình để tiếp tục chọn đáp án.'
-                                        : 'Hệ thống đang kết nối giám sát màn hình.'}
-                            </span>
-                            {!isFullscreen && requireFullscreen ? (
-                                <button className="primary-button" onClick={onReenterFullscreen} type="button">
-                                    Vào lại toàn màn hình
-                                </button>
-                            ) : monitoringStatus === 'stopped' && !isMobile && (
-                                <button className="primary-button" onClick={onRestartScreenShare} type="button">
-                                    Bật lại chia sẻ màn hình
-                                </button>
-                            )}
-                        </div>
+                    {!isFullscreen && isExamRunning && (
+                        <button className="ghost-button" onClick={onReenterFullscreen} type="button">
+                            Vào lại toàn màn hình
+                        </button>
                     )}
                 </div>
             </header>
