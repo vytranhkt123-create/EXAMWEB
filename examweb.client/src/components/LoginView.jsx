@@ -79,7 +79,7 @@ export function LoginView({ error, loading, onLogin }) {
                             autoComplete="username"
                             id="login-email"
                             onChange={(event) => updateCredential('email', event.target.value)}
-                            placeholder="thaygiao hoặc hocsinh@example.com"
+                            placeholder="Nhập tài khoản"
                             type="text"
                             value={credentials.email}
                         />
