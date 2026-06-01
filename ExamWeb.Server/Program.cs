@@ -196,8 +196,8 @@ namespace ExamWeb.Server
 
         private static void SeedDefaultAccounts(AppDbContext dbContext)
         {
-            SeedAccount(dbContext, "admin", "admin123", "Admin", "Quản trị viên");
-            SeedAccount(dbContext, "user", "user123", "User", "Học viên");
+            SeedAccount(dbContext, "admin", "admin123", "Admin", "Thầy giáo");
+            SeedAccount(dbContext, "user", "user123", "User", "Học sinh");
             dbContext.SaveChanges();
         }
 

@@ -3,6 +3,7 @@ using ExamWeb.Application.IService;
 using ExamWeb.Domain.DomainExceptions;
 using ExamWeb.Domain.Entity.Accounts;
 using ExamWeb.Infrastructure.Data;
+using ExamWeb.Infrastructure.Helpers;
 using ExamWeb.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
 
@@ -10,6 +11,9 @@ namespace ExamWeb.Infrastructure.Services
 {
     public class StudentService : IStudentService
     {
+        private const string DefaultStudentPassword = "123456";
+        private const int MaxUsernameLength = 80;
+
         private readonly AppDbContext _dbContext;
 
         public StudentService(AppDbContext dbContext)
@@ -32,25 +36,16 @@ namespace ExamWeb.Infrastructure.Services
 
         public async Task<StudentDto> CreateStudentAsync(CreateStudentRequest request, CancellationToken cancellationToken = default)
         {
-            var username = request.Username.Trim();
-            if (string.IsNullOrWhiteSpace(username))
+            var fullName = request.FullName?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(fullName))
             {
-                throw new DomainException("Tên đăng nhập không được bỏ trống");
+                throw new DomainException("Họ tên không được bỏ trống");
             }
 
-            if (string.IsNullOrWhiteSpace(request.Password))
-            {
-                throw new DomainException("Mật khẩu không được bỏ trống");
-            }
-
-            if (await _dbContext.Accounts.AnyAsync(x => x.Username == username, cancellationToken))
-            {
-                throw new DomainException("Tên đăng nhập đã tồn tại");
-            }
-
-            var account = new Account(username, request.DisplayName.Trim(), "User");
+            var username = await GenerateUniqueUsernameAsync(fullName, cancellationToken);
+            var account = new Account(username, fullName, "User");
             account.ChangeStudentInfo(request.Grade, request.ClassName);
-            account.ChangePasswordHash(PasswordHashing.Hash(request.Password));
+            account.ChangePasswordHash(PasswordHashing.Hash(DefaultStudentPassword));
             _dbContext.Accounts.Add(account);
             await _dbContext.SaveChangesAsync(cancellationToken);
             return MapStudent(account);
@@ -69,13 +64,29 @@ namespace ExamWeb.Infrastructure.Services
             account.ChangeDisplayName(request.DisplayName.Trim());
             account.ChangeStudentInfo(request.Grade, request.ClassName);
 
-            if (!string.IsNullOrWhiteSpace(request.Password))
-            {
-                account.ChangePasswordHash(PasswordHashing.Hash(request.Password));
-            }
-
             await _dbContext.SaveChangesAsync(cancellationToken);
             return MapStudent(account);
+        }
+
+        public async Task<bool> ChangePasswordAsync(int studentId, ChangePasswordRequest request, CancellationToken cancellationToken = default)
+        {
+            var newPassword = request.NewPassword?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(newPassword))
+            {
+                throw new DomainException("Mật khẩu mới không được bỏ trống");
+            }
+
+            var account = await _dbContext.Accounts
+                .FirstOrDefaultAsync(x => x.Id == studentId && x.Role == "User", cancellationToken);
+
+            if (account == null)
+            {
+                return false;
+            }
+
+            account.ChangePasswordHash(PasswordHashing.Hash(newPassword));
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return true;
         }
 
         public async Task<bool> DeleteStudentAsync(int studentId, CancellationToken cancellationToken = default)
@@ -95,6 +106,44 @@ namespace ExamWeb.Infrastructure.Services
             _dbContext.Accounts.Remove(account);
             await _dbContext.SaveChangesAsync(cancellationToken);
             return true;
+        }
+
+        private async Task<string> GenerateUniqueUsernameAsync(string fullName, CancellationToken cancellationToken)
+        {
+            var baseLocalPart = VietnameseUsernameHelper.CreateLocalPartFromFullName(fullName);
+            var suffixNumber = 0;
+
+            while (true)
+            {
+                var localPart = TrimLocalPartForUsername(baseLocalPart, suffixNumber);
+                var username = VietnameseUsernameHelper.BuildUsername(
+                    localPart,
+                    suffixNumber == 0 ? null : suffixNumber);
+
+                var exists = await _dbContext.Accounts
+                    .AnyAsync(x => x.Username == username, cancellationToken);
+
+                if (!exists)
+                {
+                    return username;
+                }
+
+                suffixNumber++;
+            }
+        }
+
+        private static string TrimLocalPartForUsername(string localPart, int suffixNumber)
+        {
+            var suffixLength = suffixNumber == 0 ? 0 : suffixNumber.ToString().Length;
+            var maxLocalLength = MaxUsernameLength - VietnameseUsernameHelper.DomainSuffix.Length - suffixLength;
+            if (maxLocalLength <= 0)
+            {
+                return localPart;
+            }
+
+            return localPart.Length <= maxLocalLength
+                ? localPart
+                : localPart[..maxLocalLength];
         }
 
         private static StudentDto MapStudent(Account account)

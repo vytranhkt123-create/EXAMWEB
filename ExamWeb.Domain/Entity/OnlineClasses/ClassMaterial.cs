@@ -31,7 +31,7 @@ namespace ExamWeb.Domain.Entity.OnlineClasses
             Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
             ChangeFile(fileName, contentType, content);
             CreatedByAccountId = createdByAccountId;
-            CreatedByName = string.IsNullOrWhiteSpace(createdByName) ? "Admin" : createdByName.Trim();
+            CreatedByName = string.IsNullOrWhiteSpace(createdByName) ? "Thầy giáo" : createdByName.Trim();
             CreatedAt = DateTime.UtcNow;
         }
 

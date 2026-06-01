@@ -74,7 +74,7 @@ export function ExamFullscreenView({
                     <div className="empty-state">
                         <div className="empty-icon" aria-hidden="true">!</div>
                         <h2>Đề chưa có câu hỏi</h2>
-                        <p>Admin cần thêm câu hỏi trước khi học viên có thể làm bài.</p>
+                        <p>Thầy giáo cần thêm câu hỏi trước khi học sinh có thể làm bài.</p>
                     </div>
                 ) : (
                     <div className="question-stack">

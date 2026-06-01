@@ -53,6 +53,20 @@ namespace ExamWeb.Server.Controllers
             }
         }
 
+        [HttpPut("{studentId:int}/change-password")]
+        public async Task<IActionResult> ChangePassword(int studentId, ChangePasswordRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var changed = await _studentService.ChangePasswordAsync(studentId, request, cancellationToken);
+                return changed ? Ok(new { message = "Đã đổi mật khẩu học sinh" }) : NotFound();
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         [HttpDelete("{studentId:int}")]
         public async Task<IActionResult> DeleteStudent(int studentId, CancellationToken cancellationToken)
         {

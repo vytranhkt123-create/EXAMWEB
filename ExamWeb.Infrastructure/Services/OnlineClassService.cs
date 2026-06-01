@@ -691,7 +691,7 @@ namespace ExamWeb.Infrastructure.Services
 
         private string GetCurrentDisplayName()
         {
-            return _currentUser.DisplayName ?? _currentUser.Username ?? (_currentUser.IsAdmin ? "Admin" : "Học sinh");
+            return _currentUser.DisplayName ?? _currentUser.Username ?? (_currentUser.IsAdmin ? "Thầy giáo" : "Học sinh");
         }
 
         private static (string ContentType, byte[] Content) ParsePdfDataUrl(string dataUrl)

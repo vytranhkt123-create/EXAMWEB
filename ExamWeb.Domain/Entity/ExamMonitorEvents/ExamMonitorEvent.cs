@@ -60,7 +60,7 @@ namespace ExamWeb.Domain.Entity.ExamMonitorEvents
         private void ChangeStudentName(string studentName)
         {
             if (string.IsNullOrWhiteSpace(studentName))
-                throw new DomainException("Tên học viên không được bỏ trống");
+                throw new DomainException("Tên học sinh không được bỏ trống");
             StudentName = studentName.Trim();
         }
 

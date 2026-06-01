@@ -9,8 +9,10 @@ import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
 import { createExamMonitorRoomId, useExamProctoring } from './hooks/useExamProctoring'
 import { useOnlineClassWebRTC } from './hooks/useOnlineClassWebRTC'
 import { clearSession, getModeForSession, getPathForMode, getStoredSession, saveSession } from './services/session'
+import { formatDateTime } from './utils/datetime'
 import { dataUrlToBlob, readFileAsDataUrl } from './utils/file'
 import { compressImageFile } from './utils/image'
+import { formatRoleLabel } from './utils/roles'
 import './App.css'
 
 const initialNewStudent = () => ({
@@ -108,14 +110,6 @@ function formatLongDuration(totalSeconds) {
     const minutes = Math.floor(safeSeconds / 60)
     const seconds = safeSeconds % 60
     return `${minutes} phút ${seconds.toString().padStart(2, '0')} giây`
-}
-
-function formatDateTime(value) {
-    if (!value) return 'Chưa ghi nhận'
-    return new Intl.DateTimeFormat('vi-VN', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-    }).format(new Date(value))
 }
 
 function getMonitorEventText(eventType) {
@@ -367,7 +361,7 @@ function App() {
             if (!active && studentTest && !result && !submittingRef.current) {
                 reportExamViolation(
                     'FullscreenExited',
-                    'Học viên thoát chế độ toàn màn hình',
+                    'Học sinh thoát chế độ toàn màn hình',
                     'Cảnh báo: Bạn đã thoát chế độ toàn màn hình. Hành vi này đã được ghi nhận.',
                 )
             } else if (active) {
@@ -1254,7 +1248,7 @@ function App() {
                         <p className="subtitle">Chọn đề được giao và làm bài trong thời gian quy định.</p>
                     </div>
                     <div className="session-card">
-                        <span className="role-chip student">Học viên</span>
+                        <span className="role-chip student">Học sinh</span>
                         <div>
                             <strong>{auth.displayName || auth.username}</strong>
                             <small>{auth.username}</small>
@@ -1344,11 +1338,11 @@ function ScreenMonitorConsentDialog({ loading, onCancel, onConfirm, testName }) 
                 <span className="modal-badge">Theo dõi làm bài</span>
                 <h2 id="monitor-dialog-title">Bắt đầu làm bài{testName ? `: ${testName}` : ''}</h2>
                 <p>
-                    Để đảm bảo tính công bằng, hệ thống sẽ yêu cầu <strong>chia sẻ màn hình</strong> và
-                    chuyển sang <strong>chế độ toàn màn hình</strong> chỉ hiển thị đề thi.
+                    Để đảm bảo tính công bằng, hệ thống sẽ chuyển sang <strong>chế độ toàn màn hình</strong> và ghi nhận
+                    các lần rời tab hoặc mất focus trong lúc làm bài.
                 </p>
                 <ul className="modal-checklist">
-                    <li>Admin có thể xem trực tiếp màn hình khi bạn đang làm bài</li>
+                    <li>Thầy giáo có thể xem nhật ký cảnh báo trong quá trình bạn làm bài</li>
                     <li>Thoát toàn màn hình, chuyển tab hoặc mất focus sẽ được ghi nhận</li>
                     <li>Bạn có thể nộp bài khi chưa làm hết câu hỏi</li>
                 </ul>
@@ -1413,7 +1407,7 @@ function StudentView({
             <aside className="side-panel">
                 <div className="panel-section">
                     <div className="panel-title">
-                        <h2>Thông tin học viên</h2>
+                        <h2>Thông tin học sinh</h2>
                     </div>
                     <div className="student-profile-card">
                         <strong>{auth.displayName}</strong>
@@ -1539,10 +1533,10 @@ function AdminDashboard({
             <aside className="admin-sidebar">
                 <div className="admin-brand">
                     <p className="eyebrow">{APP_NAME}</p>
-                    <strong>Admin Dashboard</strong>
+                    <strong>Bảng điều khiển thầy giáo</strong>
                 </div>
 
-                <nav aria-label="Admin menu" className="admin-nav">
+                <nav aria-label="Menu thầy giáo" className="admin-nav">
                     {ADMIN_SECTIONS.map((item) => (
                         <button
                             className={`admin-nav-item ${adminSection === item.id ? 'active' : ''}`}
@@ -1593,7 +1587,7 @@ function AdminDashboard({
                         <button className="ghost-button" onClick={onToggleTheme} type="button">
                             {theme === 'dark' ? 'Sáng' : 'Tối'}
                         </button>
-                        <span className="role-chip admin">Admin</span>
+                        <span className="role-chip admin">Thầy giáo</span>
                     </div>
                 </header>
 
@@ -1631,7 +1625,7 @@ function AdminDashboard({
                             <EmptyState
                                 marker="AD"
                                 text="Dùng menu bên trái để quản lý học sinh, tạo đề, thêm tài liệu PDF và mở lớp học online."
-                                title="Chào admin"
+                                title="Chào thầy giáo"
                             />
                         </section>
                     )}
@@ -2093,7 +2087,7 @@ function MaterialLibrary({ canManage = false, materials, onDeleteMaterial }) {
                 <EmptyState
                     marker="PDF"
                     title="Chưa có tài liệu"
-                    text={canManage ? 'Admin thêm PDF ở form bên trái, học sinh sẽ xem được trong mục tài liệu.' : 'Admin chưa thêm tài liệu PDF cho lớp.'}
+                    text={canManage ? 'Thầy giáo thêm PDF ở form bên trái, học sinh sẽ xem được trong mục tài liệu.' : 'Thầy giáo chưa thêm tài liệu PDF cho lớp.'}
                 />
             </section>
         )
@@ -2309,7 +2303,7 @@ function ClassroomSlidesPanel({ materials, onSelectMaterial, selectedMaterial, s
         return (
             <div className="classroom-empty-stage">
                 <strong>Chưa có slide/PDF</strong>
-                <span>Admin có thể thêm tài liệu trong mục Tài liệu PDF.</span>
+                <span>Thầy giáo có thể thêm tài liệu trong mục Tài liệu PDF.</span>
             </div>
         )
     }
@@ -2689,7 +2683,7 @@ function ClassChatPanel({ disabled = false, messages, onClearChat, onSendMessage
                         <article className="chat-message" key={message.id}>
                             <div>
                                 <strong>{message.authorName}</strong>
-                                <span>{message.role} · {formatDateTime(message.createdAt)}</span>
+                                <span>{formatRoleLabel(message.role)} · {formatDateTime(message.createdAt)}</span>
                             </div>
                             {message.text && <p>{message.text}</p>}
                             {message.imageDataUrl && (
@@ -2990,8 +2984,8 @@ function ExamMonitorLivePanel({ auth, onClose, session }) {
             )}
             {streamPeers.length === 0 ? (
                 <div className="monitor-live-empty">
-                    <strong>Đang chờ màn hình của học viên</strong>
-                    <span>Học viên cần đang làm bài và còn bật chia sẻ màn hình.</span>
+                    <strong>Đang chờ phiên làm bài của học sinh</strong>
+                    <span>Học sinh cần đang làm bài trong chế độ toàn màn hình.</span>
                 </div>
             ) : (
                 <div className="monitor-live-grid">
@@ -3030,14 +3024,14 @@ function AttemptHistory({ attempts, loading }) {
             </div>
             {attempts.length === 0 ? (
                 <div className="empty-list">
-                    {loading ? 'Đang tải lịch sử...' : 'Chưa có học viên nào nộp đề này'}
+                    {loading ? 'Đang tải lịch sử...' : 'Chưa có học sinh nào nộp đề này'}
                 </div>
             ) : (
                 <div className="history-table-wrap">
                     <table className="history-table">
                         <thead>
                             <tr>
-                                <th>Học viên</th>
+                                <th>Học sinh</th>
                                 <th>Khối / Lớp</th>
                                 <th>Điểm</th>
                                 <th>Số câu đúng</th>

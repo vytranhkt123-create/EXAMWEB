@@ -72,7 +72,7 @@ export function useExamProctoring({
         setSessionId(nextSessionId)
         setStatusMessage('active', 'Đang giám sát toàn màn hình và chuyển tab')
 
-        await recordEvent(testId, nextSessionId, 'MonitoringStarted', 'Học viên bắt đầu phiên làm bài')
+        await recordEvent(testId, nextSessionId, 'MonitoringStarted', 'Học sinh bắt đầu phiên làm bài')
         return nextSessionId
     }, [enabled, recordEvent, setStatusMessage])
 
@@ -82,7 +82,7 @@ export function useExamProctoring({
 
         setStatusMessage('active', 'Đang giám sát toàn màn hình và chuyển tab')
         onWarning?.('')
-        await recordEvent(current.testId, current.sessionId, 'MonitoringResumed', 'Học viên tiếp tục phiên giám sát')
+        await recordEvent(current.testId, current.sessionId, 'MonitoringResumed', 'Học sinh tiếp tục phiên giám sát')
     }, [onWarning, recordEvent, setStatusMessage])
 
     const reportViolation = useCallback((eventType, eventMessage, warning) => {
@@ -101,13 +101,13 @@ export function useExamProctoring({
             if (document.hidden) {
                 reportViolation(
                     'TabHidden',
-                    'Học viên rời khỏi tab làm bài',
+                    'Học sinh rời khỏi tab làm bài',
                     'Cảnh báo: Bạn đã rời khỏi tab làm bài. Hành vi này đã được ghi nhận.',
                 )
                 return
             }
 
-            recordEvent(studentTest.id, sessionId, 'TabVisible', 'Học viên quay lại tab làm bài')
+            recordEvent(studentTest.id, sessionId, 'TabVisible', 'Học sinh quay lại tab làm bài')
         }
 
         const reportBlur = () => {

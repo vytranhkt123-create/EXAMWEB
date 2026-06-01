@@ -23,7 +23,7 @@ namespace ExamWeb.Domain.Entity.OnlineClasses
             ChangeName(name);
             Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim();
             CreatedByAccountId = createdByAccountId;
-            CreatedByName = string.IsNullOrWhiteSpace(createdByName) ? "Admin" : createdByName.Trim();
+            CreatedByName = string.IsNullOrWhiteSpace(createdByName) ? "Thầy giáo" : createdByName.Trim();
             CreatedAt = DateTime.UtcNow;
             IsLive = false;
         }

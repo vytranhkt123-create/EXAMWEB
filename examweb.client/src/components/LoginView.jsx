@@ -19,7 +19,7 @@ export function LoginView({ error, loading, onLogin }) {
         setTouched(true)
 
         if (!credentials.email.trim() || !credentials.password) {
-            setLocalError('Enter your username and password.')
+            setLocalError('Nhập tên đăng nhập và mật khẩu.')
             return
         }
 
@@ -63,34 +63,34 @@ export function LoginView({ error, loading, onLogin }) {
                 <header className="login-form-header">
                     <p className="login-brand-eyebrow">Secure exam workspace</p>
                     <h1>Sign in to continue</h1>
-                    <span>Use the account issued by your administrator.</span>
+                    <span>Sử dụng tài khoản do thầy giáo cấp.</span>
                 </header>
 
                 {(visibleError || (touched && !canSubmit && !loading)) && (
                     <div className="login-inline-error" role="alert">
-                        {visibleError || 'Enter both fields to continue.'}
+                        {visibleError || 'Nhập đầy đủ thông tin để tiếp tục.'}
                     </div>
                 )}
 
                 <form className="login-form" onSubmit={handleSubmit}>
                     <label className="form-row" htmlFor="login-email">
-                        <span>Username or email</span>
+                        <span>Tên đăng nhập hoặc email</span>
                         <input
                             autoComplete="username"
                             id="login-email"
                             onChange={(event) => updateCredential('email', event.target.value)}
-                            placeholder="admin or student@example.com"
+                            placeholder="thaygiao hoặc hocsinh@example.com"
                             type="text"
                             value={credentials.email}
                         />
                     </label>
                     <label className="form-row" htmlFor="login-password">
-                        <span>Password</span>
+                        <span>Mật khẩu</span>
                         <input
                             autoComplete="current-password"
                             id="login-password"
                             onChange={(event) => updateCredential('password', event.target.value)}
-                            placeholder="Enter password"
+                            placeholder="Nhập mật khẩu"
                             type="password"
                             value={credentials.password}
                         />
@@ -103,16 +103,16 @@ export function LoginView({ error, loading, onLogin }) {
                         {loading ? (
                             <>
                                 <span className="login-spinner" aria-hidden="true" />
-                                Signing in
+                                Đang đăng nhập
                             </>
                         ) : (
-                            'Sign in'
+                            'Đăng nhập'
                         )}
                     </button>
                 </form>
 
                 <p className="login-form-footer">
-                    Contact your class administrator if your account is locked or missing.
+                    Liên hệ thầy giáo nếu tài khoản của bạn bị khóa hoặc chưa được tạo.
                 </p>
             </section>
         </main>

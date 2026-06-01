@@ -210,7 +210,7 @@ export function OnlineClassRoom({
             (room) => room.id === selectedRoomId && (room.isMember || canManage),
         )
         if (!allowed) {
-            setAccessDenied('Tài khoản chưa được admin gán vào phòng học này.')
+            setAccessDenied('Tài khoản chưa được thầy giáo gán vào phòng học này.')
             return
         }
 
@@ -322,7 +322,7 @@ export function OnlineClassRoom({
                     <p className="meet-room-eyebrow">Phòng học trực tuyến</p>
                     <h2>Chọn phòng để tham gia</h2>
                     <p className="meet-room-lead">
-                        Chỉ các phòng bạn được admin gán mới xuất hiện trong danh sách.
+                        Chỉ các phòng bạn được thầy giáo gán mới xuất hiện trong danh sách.
                     </p>
                 </div>
                 <button className="ghost-button" disabled={roomsLoading} onClick={() => loadRooms()} type="button">
@@ -340,7 +340,7 @@ export function OnlineClassRoom({
                     <p>
                         {canManage
                             ? 'Hãy tạo phòng mới và gán học sinh từ trang quản trị.'
-                            : 'Liên hệ admin để được thêm vào phòng học.'}
+                            : 'Liên hệ thầy giáo để được thêm vào phòng học.'}
                     </p>
                 </div>
             )}
@@ -404,7 +404,7 @@ export function OnlineClassRoom({
                                     : canJoinSelectedRoom
                                         ? 'Tham gia phòng'
                                         : selectedRoom.isLive === false && !canManage
-                                            ? 'Chờ admin mở phòng'
+                                            ? 'Chờ thầy giáo mở phòng'
                                             : 'Không có quyền tham gia'}
                             </button>
                         </div>

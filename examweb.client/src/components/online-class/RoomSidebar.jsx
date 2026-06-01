@@ -3,7 +3,7 @@ import { formatDateTime } from '../../utils/datetime'
 import { compressImageFile } from '../../utils/image'
 
 function MemberAvatar({ name, speaking = false }) {
-    const initials = String(name || 'User')
+    const initials = String(name || 'Học sinh')
         .trim()
         .split(/\s+/)
         .slice(0, 2)

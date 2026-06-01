@@ -186,7 +186,7 @@ export function RoomManagementPanel({
         <section className="room-management-panel" aria-label="Room management">
             <div className="room-management-head">
                 <div>
-                    <p className="meet-room-eyebrow">Admin rooms</p>
+                    <p className="meet-room-eyebrow">Phòng của thầy giáo</p>
                     <h3>Manage rooms and students</h3>
                 </div>
                 <span className="badge">{rooms.length} rooms</span>

@@ -1,3 +1,12 @@
+import {
+    formatDateTime,
+    formatLocalDate,
+    formatTime,
+    parseBackendDate,
+    toDateTimeLocalInputValue,
+    toUtcIsoString,
+} from '../../utils/datetime'
+
 export const ATTENDANCE_LABELS = {
     Present: 'Có mặt',
     Absent: 'Xin vắng',
@@ -27,59 +36,50 @@ export function createDefaultScheduleForm() {
 
 export function getScheduleTiming(schedule) {
     const now = Date.now()
-    const start = new Date(schedule.startTime).getTime()
-    const end = new Date(schedule.endTime).getTime()
+    const start = parseBackendDate(schedule.startTime)?.getTime()
+    const end = parseBackendDate(schedule.endTime)?.getTime()
 
-    if (Number.isNaN(start) || Number.isNaN(end)) return 'upcoming'
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return 'upcoming'
     if (now < start) return 'upcoming'
     if (now <= end) return 'live'
     return 'past'
 }
 
 export function toDateTimeLocalValue(value) {
-    const date = value instanceof Date ? value : new Date(value)
-    if (Number.isNaN(date.getTime())) return ''
-
-    const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60 * 1000)
-    return localDate.toISOString().slice(0, 16)
+    return toDateTimeLocalInputValue(value)
 }
 
 export function toApiDateTime(value) {
-    const date = new Date(value)
-    return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+    return toUtcIsoString(value)
 }
 
 export function formatScheduleDate(value) {
-    if (!value) return 'Chưa đặt lịch'
-
-    return new Intl.DateTimeFormat('vi-VN', {
-        weekday: 'long',
-        day: '2-digit',
-        month: '2-digit',
-        year: 'numeric',
-    }).format(new Date(value))
+    return formatLocalDate(
+        value,
+        {
+            weekday: 'long',
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+        },
+        'Chưa đặt lịch',
+    )
 }
 
 export function formatScheduleTimeRange(schedule) {
-    const formatter = new Intl.DateTimeFormat('vi-VN', {
-        hour: '2-digit',
-        minute: '2-digit',
-    })
-
-    return `${formatter.format(new Date(schedule.startTime))} - ${formatter.format(new Date(schedule.endTime))}`
+    return `${formatTime(schedule.startTime)} - ${formatTime(schedule.endTime)}`
 }
 
 export function formatScheduleDateTime(value) {
-    if (!value) return 'Chưa ghi nhận'
-
-    return new Intl.DateTimeFormat('vi-VN', {
-        dateStyle: 'short',
-        timeStyle: 'short',
-    }).format(new Date(value))
+    return formatDateTime(value)
 }
 
 export function sortSchedules(schedules) {
-    return [...schedules].sort((left, right) => new Date(left.startTime) - new Date(right.startTime))
+    return [...schedules].sort((left, right) => {
+        const leftTime = parseBackendDate(left.startTime)?.getTime() ?? 0
+        const rightTime = parseBackendDate(right.startTime)?.getTime() ?? 0
+        return leftTime - rightTime
+    })
 }
 
 export function getAttendanceReason(attendance) {

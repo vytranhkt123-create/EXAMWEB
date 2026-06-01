@@ -191,7 +191,7 @@ export function StudentSchedulePanel({ auth }) {
                             </div>
 
                             <div className="schedule-detail">
-                                <p>{selectedSchedule.description || 'Admin chưa thêm mô tả cho buổi học này.'}</p>
+                                <p>{selectedSchedule.description || 'Thầy giáo chưa thêm mô tả cho buổi học này.'}</p>
                                 <div className="schedule-detail-grid">
                                     <InfoTile label="Ngày học" value={formatScheduleDate(selectedSchedule.startTime)} />
                                     <InfoTile label="Thời gian" value={formatScheduleTimeRange(selectedSchedule)} />
@@ -238,7 +238,7 @@ export function StudentSchedulePanel({ auth }) {
                                     <textarea
                                         id="attendance-reason"
                                         onChange={(event) => updateAttendanceForm('reason', event.target.value)}
-                                        placeholder="Nhập lý do để admin nắm được tình hình"
+                                        placeholder="Nhập lý do để thầy giáo nắm được tình hình"
                                         required
                                         rows="4"
                                         value={attendanceForm.reason}
@@ -254,7 +254,7 @@ export function StudentSchedulePanel({ auth }) {
                         <div className="empty-state">
                             <div className="empty-icon" aria-hidden="true">L</div>
                             <h2>Chưa có lịch học</h2>
-                            <p>Admin chưa tạo thời khóa biểu cho lớp.</p>
+                            <p>Thầy giáo chưa tạo thời khóa biểu cho lớp.</p>
                         </div>
                     )}
                 </section>
