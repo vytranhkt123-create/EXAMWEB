@@ -56,7 +56,7 @@ export function LoginView({ error, loading, onLogin }) {
 
             <section className="login-glass-panel" aria-label="Sign in">
                 <div className="login-wordmark">
-                    <span className="login-logo-mark">E</span>
+                    <span className="login-logo-mark">Đ</span>
                     <strong>{APP_NAME}</strong>
                 </div>
 
