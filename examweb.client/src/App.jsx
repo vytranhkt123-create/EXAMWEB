@@ -16,9 +16,7 @@ import { formatRoleLabel } from './utils/roles'
 import './App.css'
 
 const initialNewStudent = () => ({
-    username: '',
-    password: '',
-    displayName: '',
+    fullName: '',
     grade: '',
     className: '',
 })
@@ -173,6 +171,7 @@ function App() {
     const [whiteboardSnapshots, setWhiteboardSnapshots] = useState([])
     const [chatMessages, setChatMessages] = useState([])
     const [onlineNotice, setOnlineNotice] = useState('')
+    const [createdStudentCredentials, setCreatedStudentCredentials] = useState(null)
 
     const [loading, setLoading] = useState(false)
     const [historyLoading, setHistoryLoading] = useState(false)
@@ -832,19 +831,53 @@ function App() {
 
     async function createStudentAccount(event) {
         event.preventDefault()
+        const fullName = newStudent.fullName.trim()
+        if (!fullName) {
+            setError('Họ tên học sinh không được bỏ trống')
+            return
+        }
+
         setSaving(true)
         setError('')
         try {
-            await studentsApi('', {
+            const created = await studentsApi('', {
                 method: 'POST',
-                body: JSON.stringify(newStudent),
+                body: JSON.stringify({
+                    fullName,
+                    grade: newStudent.grade?.trim() || null,
+                    className: newStudent.className?.trim() || null,
+                }),
             })
             setNewStudent(initialNewStudent())
+            setCreatedStudentCredentials({
+                displayName: created.displayName,
+                username: created.username,
+                password: '123456',
+            })
             await loadStudents()
         } catch (err) {
             if (!handleAuthFailure(err)) {
                 setError(err.message)
             }
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    async function changeStudentPassword(studentId, newPassword) {
+        setSaving(true)
+        setError('')
+        try {
+            await studentsApi(`/${studentId}/change-password`, {
+                method: 'PUT',
+                body: JSON.stringify({ newPassword }),
+            })
+            return true
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+            return false
         } finally {
             setSaving(false)
         }
@@ -1173,6 +1206,7 @@ function App() {
                 assignedStudentIds={assignedStudentIds}
                 attemptHistory={attemptHistory}
                 auth={auth}
+                createdStudentCredentials={createdStudentCredentials}
                 editDurationMinutes={editDurationMinutes}
                 editTestName={editTestName}
                 error={error}
@@ -1190,6 +1224,8 @@ function App() {
                 onAddMaterial={addMaterial}
                 onClearChat={clearChatMessages}
                 onAddQuestion={addQuestion}
+                onChangeStudentPassword={changeStudentPassword}
+                onCloseCreatedStudentCredentials={() => setCreatedStudentCredentials(null)}
                 onCreateStudent={createStudentAccount}
                 onCreateTest={createTest}
                 onDeleteMaterial={deleteMaterial}
@@ -1455,6 +1491,7 @@ function AdminDashboard({
     assignedStudentIds,
     attemptHistory,
     auth,
+    createdStudentCredentials,
     editDurationMinutes,
     editTestName,
     error,
@@ -1472,6 +1509,8 @@ function AdminDashboard({
     onAddMaterial,
     onClearChat,
     onAddQuestion,
+    onChangeStudentPassword,
+    onCloseCreatedStudentCredentials,
     onCreateStudent,
     onCreateTest,
     onDeleteMaterial,
@@ -1632,7 +1671,10 @@ function AdminDashboard({
 
                     {adminSection === 'students' && (
                         <StudentManagementPanel
+                            createdStudentCredentials={createdStudentCredentials}
                             newStudent={newStudent}
+                            onChangeStudentPassword={onChangeStudentPassword}
+                            onCloseCreatedCredentials={onCloseCreatedStudentCredentials}
                             onCreateStudent={onCreateStudent}
                             onDeleteStudent={onDeleteStudent}
                             saving={saving}
@@ -2739,9 +2781,63 @@ function ClassChatPanel({ disabled = false, messages, onClearChat, onSendMessage
     )
 }
 
-function StudentManagementPanel({ newStudent, onCreateStudent, onDeleteStudent, saving, setNewStudent, students }) {
+function StudentManagementPanel({
+    createdStudentCredentials,
+    newStudent,
+    onChangeStudentPassword,
+    onCloseCreatedCredentials,
+    onCreateStudent,
+    onDeleteStudent,
+    saving,
+    setNewStudent,
+    students,
+}) {
+    const [passwordDialogStudent, setPasswordDialogStudent] = useState(null)
+    const [newPassword, setNewPassword] = useState('')
+    const [passwordError, setPasswordError] = useState('')
+    const [toastMessage, setToastMessage] = useState('')
+
+    useEffect(() => {
+        if (!toastMessage) return undefined
+
+        const timer = window.setTimeout(() => setToastMessage(''), 3200)
+        return () => window.clearTimeout(timer)
+    }, [toastMessage])
+
     function updateField(field, value) {
         setNewStudent((current) => ({ ...current, [field]: value }))
+    }
+
+    function openPasswordDialog(student) {
+        setPasswordDialogStudent(student)
+        setNewPassword('')
+        setPasswordError('')
+    }
+
+    function closePasswordDialog() {
+        if (saving) return
+        setPasswordDialogStudent(null)
+        setNewPassword('')
+        setPasswordError('')
+    }
+
+    async function handlePasswordSubmit(event) {
+        event.preventDefault()
+        const cleanPassword = newPassword.trim()
+        if (!cleanPassword) {
+            setPasswordError('Nhập mật khẩu mới')
+            return
+        }
+
+        const targetStudent = passwordDialogStudent
+        if (!targetStudent) return
+
+        setPasswordError('')
+        const changed = await onChangeStudentPassword(targetStudent.id, cleanPassword)
+        if (changed) {
+            closePasswordDialog()
+            setToastMessage(`Đã đổi mật khẩu cho ${targetStudent.displayName}`)
+        }
     }
 
     return (
@@ -2751,29 +2847,23 @@ function StudentManagementPanel({ newStudent, onCreateStudent, onDeleteStudent, 
                 <span className="badge-count">{students.length}</span>
             </div>
 
+            {toastMessage && (
+                <div className="student-toast" role="status">
+                    {toastMessage}
+                </div>
+            )}
+
             <form className="student-create-form" onSubmit={onCreateStudent}>
-                <label htmlFor="student-username">Tài khoản đăng nhập</label>
+                <label htmlFor="student-full-name">Họ và tên</label>
                 <input
-                    id="student-username"
-                    onChange={(event) => updateField('username', event.target.value)}
-                    placeholder="vd: hs001"
-                    value={newStudent.username}
-                />
-                <label htmlFor="student-password">Mật khẩu</label>
-                <input
-                    id="student-password"
-                    onChange={(event) => updateField('password', event.target.value)}
-                    placeholder="Mật khẩu ban đầu"
-                    type="password"
-                    value={newStudent.password}
-                />
-                <label htmlFor="student-display-name">Họ và tên</label>
-                <input
-                    id="student-display-name"
-                    onChange={(event) => updateField('displayName', event.target.value)}
+                    id="student-full-name"
+                    onChange={(event) => updateField('fullName', event.target.value)}
                     placeholder="Nguyễn Văn A"
-                    value={newStudent.displayName}
+                    value={newStudent.fullName}
                 />
+                <p className="field-hint">
+                    Tên đăng nhập sẽ được sinh tự động. Mật khẩu mặc định là 123456.
+                </p>
                 <div className="form-row compact">
                     <div>
                         <label htmlFor="student-grade">Khối</label>
@@ -2796,7 +2886,7 @@ function StudentManagementPanel({ newStudent, onCreateStudent, onDeleteStudent, 
                 </div>
                 <button
                     className="primary-button full-width"
-                    disabled={saving || !newStudent.username.trim() || !newStudent.password || !newStudent.displayName.trim()}
+                    disabled={saving || !newStudent.fullName.trim()}
                     type="submit"
                 >
                     Tạo tài khoản
@@ -2814,18 +2904,142 @@ function StudentManagementPanel({ newStudent, onCreateStudent, onDeleteStudent, 
                                 <span>{formatStudentLabel(student)}</span>
                                 <small>{student.username}</small>
                             </div>
-                            <button
-                                className="delete-button outline"
-                                onClick={() => onDeleteStudent(student.id)}
-                                type="button"
-                            >
-                                Xóa
-                            </button>
+                            <div className="student-row-actions">
+                                <button
+                                    className="ghost-button student-password-button"
+                                    onClick={() => openPasswordDialog(student)}
+                                    type="button"
+                                >
+                                    <KeyIcon />
+                                    Đổi mật khẩu
+                                </button>
+                                <button
+                                    className="delete-button outline"
+                                    onClick={() => onDeleteStudent(student.id)}
+                                    type="button"
+                                >
+                                    Xóa
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
             )}
+
+            {createdStudentCredentials && (
+                <CreatedStudentCredentialsModal
+                    credentials={createdStudentCredentials}
+                    onClose={onCloseCreatedCredentials}
+                />
+            )}
+
+            {passwordDialogStudent && (
+                <ChangeStudentPasswordModal
+                    error={passwordError}
+                    newPassword={newPassword}
+                    onCancel={closePasswordDialog}
+                    onChangePassword={setNewPassword}
+                    onSubmit={handlePasswordSubmit}
+                    saving={saving}
+                    student={passwordDialogStudent}
+                />
+            )}
         </section>
+    )
+}
+
+function KeyIcon() {
+    return (
+        <svg aria-hidden="true" fill="none" focusable="false" viewBox="0 0 24 24">
+            <path
+                d="M14.5 9.5a4.5 4.5 0 1 1-1.35 3.2L4 21.85 2.15 20 11.3 10.85A4.5 4.5 0 0 1 14.5 9.5Z"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+            />
+            <path
+                d="m6.5 19.5 2 2M8.75 17.25l2 2M15.75 8.25h.01"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+            />
+        </svg>
+    )
+}
+
+function CreatedStudentCredentialsModal({ credentials, onClose }) {
+    return (
+        <div className="modal-overlay" role="presentation">
+            <div aria-labelledby="created-student-title" aria-modal="true" className="modal-card account-modal" role="dialog">
+                <span className="modal-badge">Tài khoản mới</span>
+                <h2 id="created-student-title">Tạo thành công!</h2>
+                <p className="modal-copy">
+                    Gửi thông tin đăng nhập dưới đây cho học sinh.
+                </p>
+                <div className="generated-account-summary">
+                    <div>
+                        <span>Học sinh</span>
+                        <strong>{credentials.displayName}</strong>
+                    </div>
+                    <div>
+                        <span>Tên đăng nhập</span>
+                        <code>{credentials.username}</code>
+                    </div>
+                    <div>
+                        <span>Mật khẩu</span>
+                        <code>{credentials.password}</code>
+                    </div>
+                </div>
+                <div className="modal-actions">
+                    <button className="primary-button" onClick={onClose} type="button">
+                        Đã hiểu
+                    </button>
+                </div>
+            </div>
+        </div>
+    )
+}
+
+function ChangeStudentPasswordModal({
+    error,
+    newPassword,
+    onCancel,
+    onChangePassword,
+    onSubmit,
+    saving,
+    student,
+}) {
+    return (
+        <div className="modal-overlay" role="presentation">
+            <div aria-labelledby="change-password-title" aria-modal="true" className="modal-card account-modal" role="dialog">
+                <span className="modal-badge">Đổi mật khẩu</span>
+                <h2 id="change-password-title">{student.displayName}</h2>
+                <form className="change-password-form" onSubmit={onSubmit}>
+                    <label className="form-row" htmlFor="student-new-password">
+                        <span>Mật khẩu mới</span>
+                        <input
+                            autoFocus
+                            id="student-new-password"
+                            onChange={(event) => onChangePassword(event.target.value)}
+                            placeholder="Nhập mật khẩu mới"
+                            type="password"
+                            value={newPassword}
+                        />
+                    </label>
+                    {error && <p className="chat-form-alert" role="alert">{error}</p>}
+                    <div className="modal-actions">
+                        <button className="ghost-button" disabled={saving} onClick={onCancel} type="button">
+                            Hủy
+                        </button>
+                        <button className="primary-button" disabled={saving || !newPassword.trim()} type="submit">
+                            {saving ? 'Đang lưu...' : 'Lưu'}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
     )
 }
 
