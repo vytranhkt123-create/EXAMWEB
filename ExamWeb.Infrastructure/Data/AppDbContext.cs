@@ -4,6 +4,7 @@ using ExamWeb.Domain.Entity.Accounts;
 using ExamWeb.Domain.Entity.ExamMonitorEvents;
 using ExamWeb.Domain.Entity.OnlineClasses;
 using ExamWeb.Domain.Entity.Questions;
+using ExamWeb.Domain.Entity.Schedules;
 using ExamWeb.Domain.Entity.Tests;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
@@ -31,5 +32,7 @@ namespace ExamWeb.Infrastructure.Data
         public DbSet<OnlineChatMessage> OnlineChatMessages { get; set; }
         public DbSet<OnlineClassRoom> OnlineClassRooms { get; set; }
         public DbSet<ClassRoomMember> ClassRoomMembers { get; set; }
+        public DbSet<ClassSchedule> ClassSchedules { get; set; }
+        public DbSet<ScheduleAttendance> ScheduleAttendances { get; set; }
     }
 }

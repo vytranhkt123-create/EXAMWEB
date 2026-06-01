@@ -2583,6 +2583,400 @@ textarea:focus {
     color: #ffffff;
 }
 
+.schedule-admin,
+.schedule-user {
+    display: grid;
+    gap: 18px;
+}
+
+.schedule-hero {
+    align-items: center;
+    display: flex;
+    gap: 18px;
+    justify-content: space-between;
+}
+
+.schedule-hero h2 {
+    font-size: 24px;
+    margin: 0 0 6px;
+}
+
+.schedule-hero p:not(.eyebrow) {
+    color: #64748b;
+    font-weight: 650;
+    line-height: 1.55;
+    margin: 0;
+    max-width: 720px;
+}
+
+.schedule-stat-strip {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(4, minmax(88px, 1fr));
+    min-width: min(520px, 100%);
+}
+
+.schedule-stat-strip.compact {
+    grid-template-columns: repeat(2, minmax(98px, 1fr));
+    min-width: min(280px, 100%);
+}
+
+.schedule-stat {
+    background: #f8fafc;
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    display: grid;
+    gap: 4px;
+    padding: 12px;
+}
+
+.schedule-stat span,
+.schedule-info-tile span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.schedule-stat strong {
+    color: #172033;
+    font-size: 24px;
+    font-weight: 900;
+}
+
+.schedule-admin-layout,
+.schedule-user-layout {
+    display: grid;
+    gap: 18px;
+    grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+}
+
+.schedule-admin-layout.lower {
+    grid-template-columns: minmax(300px, 0.9fr) minmax(0, 1.2fr);
+}
+
+.schedule-form-panel,
+.schedule-list-panel,
+.schedule-detail-panel,
+.attendance-requests-panel,
+.schedule-student-detail {
+    align-self: start;
+    display: grid;
+    gap: 16px;
+}
+
+.schedule-form-grid {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.schedule-list,
+.attendance-request-list {
+    display: grid;
+    gap: 12px;
+}
+
+.schedule-card {
+    background: linear-gradient(135deg, #ffffff, #f8fbff);
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.schedule-card.selected,
+.student-schedule-row.selected {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.schedule-card-main {
+    align-items: flex-start;
+    background: transparent;
+    border: 0;
+    color: #172033;
+    cursor: pointer;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 14px;
+    text-align: left;
+    width: 100%;
+}
+
+.schedule-card-main div,
+.student-schedule-row div:first-child,
+.attendance-request-row div,
+.student-attendance-current div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.schedule-card-main strong,
+.student-schedule-row strong,
+.attendance-request-row strong {
+    color: #172033;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1.35;
+}
+
+.schedule-card-main span,
+.student-schedule-row span,
+.attendance-request-row span {
+    color: #475569;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+.schedule-card-main small,
+.student-schedule-row small,
+.attendance-request-row small,
+.student-attendance-current small {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 750;
+}
+
+.schedule-card-footer {
+    align-items: center;
+    border-top: 1px solid #e6ebf2;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: space-between;
+    padding: 10px 12px;
+}
+
+.schedule-card-footer > span {
+    background: #f8fafc;
+    border-radius: 999px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 6px 8px;
+}
+
+.schedule-status-chip {
+    align-items: center;
+    border-radius: 999px;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 12px;
+    font-weight: 900;
+    justify-content: center;
+    line-height: 1;
+    min-height: 28px;
+    padding: 0 10px;
+    white-space: nowrap;
+}
+
+.schedule-status-chip.upcoming,
+.schedule-status-chip.late {
+    background: #fff7ed;
+    color: #c2410c;
+}
+
+.schedule-status-chip.live,
+.schedule-status-chip.present {
+    background: #ecfdf5;
+    color: #047857;
+}
+
+.schedule-status-chip.past,
+.schedule-status-chip.muted {
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.schedule-status-chip.absent {
+    background: #fff1f2;
+    color: #be123c;
+}
+
+.schedule-detail {
+    display: grid;
+    gap: 14px;
+}
+
+.schedule-detail h3 {
+    font-size: 20px;
+    margin: 0;
+}
+
+.schedule-detail p {
+    color: #475569;
+    font-weight: 650;
+    line-height: 1.6;
+    margin: 0;
+}
+
+.schedule-detail-grid {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.schedule-info-tile {
+    background: #f8fafc;
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+}
+
+.schedule-info-tile strong {
+    color: #172033;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+.schedule-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.schedule-filter-row button {
+    background: #ffffff;
+    border: 1px solid #dbe4f3;
+    border-radius: 999px;
+    color: #334155;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 850;
+    min-height: 36px;
+    padding: 0 12px;
+}
+
+.schedule-filter-row button.active {
+    background: #0f766e;
+    border-color: #0f766e;
+    color: #ffffff;
+}
+
+.attendance-request-row {
+    background: #ffffff;
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    display: grid;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 14px;
+}
+
+.attendance-request-row p {
+    background: #f8fafc;
+    border-radius: 8px;
+    color: #334155;
+    font-size: 14px;
+    font-weight: 700;
+    grid-column: 1 / -1;
+    line-height: 1.5;
+    margin: 0;
+    padding: 10px 12px;
+}
+
+.student-schedule-row {
+    align-items: flex-start;
+    background: linear-gradient(135deg, #ffffff, #f8fbff);
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    color: #172033;
+    cursor: pointer;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 14px;
+    text-align: left;
+    width: 100%;
+}
+
+.student-schedule-statuses {
+    align-items: flex-end;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+}
+
+.student-attendance-current {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    display: flex;
+    gap: 14px;
+    justify-content: space-between;
+    padding: 14px;
+}
+
+.student-attendance-current span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+}
+
+.student-attendance-current strong {
+    color: #172033;
+    font-size: 15px;
+    font-weight: 900;
+}
+
+.student-attendance-form {
+    border-top: 1px solid #e6ebf2;
+    display: grid;
+    gap: 14px;
+    padding-top: 16px;
+}
+
+.student-attendance-form h3 {
+    font-size: 18px;
+    margin: 0;
+}
+
+.schedule-choice-row {
+    display: grid;
+    gap: 10px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.schedule-choice-row label {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    cursor: pointer;
+    display: flex;
+    gap: 8px;
+    margin: 0;
+    padding: 12px;
+}
+
+.schedule-choice-row label.selected {
+    background: #ecfdf5;
+    border-color: #14b8a6;
+    color: #0f766e;
+}
+
+.schedule-choice-row input {
+    accent-color: #0f766e;
+    height: 16px;
+    margin: 0;
+    width: 16px;
+}
+
+.schedule-alert {
+    margin-bottom: 0;
+    max-width: none;
+}
+
+.schedule-notice {
+    margin: 0;
+}
+
 .admin-panel,
 .stat-card,
 .question-block,
@@ -2921,9 +3315,72 @@ textarea:focus {
     overflow-wrap: anywhere;
 }
 
+.chat-message-image,
+.meet-chat-image {
+    border-radius: 8px;
+    display: block;
+    max-height: 260px;
+    object-fit: contain;
+    width: min(100%, 420px);
+}
+
 .chat-form {
     display: grid;
     gap: 10px;
+}
+
+.chat-image-picker,
+.meet-chat-upload {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #334155;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 14px;
+    font-weight: 800;
+    justify-content: center;
+    min-height: 42px;
+    padding: 0 14px;
+}
+
+.chat-image-picker.disabled,
+.meet-chat-upload.disabled {
+    cursor: not-allowed;
+    opacity: 0.58;
+}
+
+.chat-image-picker input,
+.meet-chat-upload input {
+    display: none;
+}
+
+.chat-image-preview,
+.meet-chat-preview {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 10px;
+}
+
+.chat-image-preview img,
+.meet-chat-preview img {
+    border-radius: 6px;
+    height: 76px;
+    object-fit: cover;
+    width: 108px;
+}
+
+.chat-form-alert {
+    color: #be123c;
+    font-size: 13px;
+    font-weight: 800;
+    margin: 0;
 }
 
 /* Online meet room (Google Meet / Zoom style) */
@@ -3290,6 +3747,7 @@ textarea:focus {
     color: #e2e8f0;
     font-size: 14px;
     margin: 0;
+    overflow-wrap: anywhere;
 }
 
 .meet-chat-form {
@@ -3307,8 +3765,31 @@ textarea:focus {
 
 .meet-chat-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     justify-content: flex-end;
+}
+
+.meet-chat-image {
+    max-height: 220px;
+    width: 100%;
+}
+
+.meet-chat-upload {
+    background: rgba(15, 23, 42, 0.8);
+    border-color: rgba(148, 163, 184, 0.28);
+    color: #e5e7eb;
+    min-height: 38px;
+}
+
+.meet-chat-preview {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(148, 163, 184, 0.22);
+}
+
+.meet-chat-preview img {
+    height: 58px;
+    width: 86px;
 }
 
 @media (max-width: 980px) {
@@ -3406,16 +3887,41 @@ textarea:focus {
     .online-settings-form,
     .online-room-grid,
     .classroom-room-shell,
-    .classroom-slides-panel {
+    .classroom-slides-panel,
+    .schedule-admin-layout,
+    .schedule-admin-layout.lower,
+    .schedule-user-layout {
         grid-template-columns: 1fr;
     }
 
     .online-class-head,
     .whiteboard-toolbar,
     .material-preview-head,
-    .meeting-lobby {
+    .meeting-lobby,
+    .schedule-hero,
+    .student-attendance-current {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .schedule-stat-strip,
+    .schedule-stat-strip.compact,
+    .schedule-form-grid,
+    .schedule-detail-grid,
+    .schedule-choice-row {
+        grid-template-columns: 1fr;
+        min-width: 0;
+    }
+
+    .student-schedule-row,
+    .schedule-card-main {
+        flex-direction: column;
+    }
+
+    .student-schedule-statuses {
+        align-items: flex-start;
+        flex-direction: row;
+        flex-wrap: wrap;
     }
 
     .whiteboard-tools {

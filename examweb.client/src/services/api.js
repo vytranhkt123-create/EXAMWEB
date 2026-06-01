@@ -120,6 +120,10 @@ export function onlineClassApi(path = '', options = {}) {
     return requestJson(buildApiUrl(`/api/online-class${path}`), withAuthHeaders(options))
 }
 
+export function scheduleApi(path = '', options = {}) {
+    return requestJson(buildApiUrl(`/api/schedules${path}`), withAuthHeaders(options))
+}
+
 export function getOnlineClassSocketUrl(session) {
     if (!session?.accessToken) return ''
     const url = new URL('/ws/online-class', API_BASE_URL || window.location.origin)

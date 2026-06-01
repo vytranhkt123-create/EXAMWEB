@@ -74,6 +74,7 @@ namespace ExamWeb.Application.DTO.OnlineClass
         public string AuthorName { get; set; } = string.Empty;
         public string Role { get; set; } = string.Empty;
         public string? RoomId { get; set; }
+        public string? ImageDataUrl { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -81,6 +82,7 @@ namespace ExamWeb.Application.DTO.OnlineClass
     {
         public string Text { get; set; } = string.Empty;
         public string? RoomId { get; set; }
+        public string? ImageDataUrl { get; set; }
     }
 
     public class OnlineClassRoomDto

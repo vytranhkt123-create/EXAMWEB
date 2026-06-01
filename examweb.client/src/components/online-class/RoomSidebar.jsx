@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { formatDateTime } from '../../utils/datetime'
+import { compressImageFile } from '../../utils/image'
 
 function MemberAvatar({ name, speaking = false }) {
     const initials = String(name || 'User')
@@ -27,13 +28,43 @@ export function RoomSidebar({
     onSendMessage,
 }) {
     const [messageText, setMessageText] = useState('')
+    const [imageDataUrl, setImageDataUrl] = useState('')
+    const [imageError, setImageError] = useState('')
+    const [imageProcessing, setImageProcessing] = useState(false)
     const [activeTab, setActiveTab] = useState('participants')
+    const fileInputRef = useRef(null)
+
+    async function handleImageChange(event) {
+        const file = event.target.files?.[0]
+        if (!file) return
+
+        setImageError('')
+        setImageProcessing(true)
+        try {
+            const compressed = await compressImageFile(file)
+            setImageDataUrl(compressed)
+        } catch (err) {
+            setImageDataUrl('')
+            setImageError(err.message || 'Could not process image')
+        } finally {
+            setImageProcessing(false)
+        }
+    }
+
+    function clearSelectedImage() {
+        setImageDataUrl('')
+        setImageError('')
+        if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+        }
+    }
 
     async function handleSubmit(event) {
         event.preventDefault()
-        if (!messageText.trim() || chatDisabled) return
-        await onSendMessage?.(messageText)
+        if ((!messageText.trim() && !imageDataUrl) || chatDisabled || imageProcessing) return
+        await onSendMessage?.({ text: messageText, imageDataUrl })
         setMessageText('')
+        clearSelectedImage()
     }
 
     return (
@@ -91,7 +122,14 @@ export function RoomSidebar({
                                             {formatDateTime(message.createdAt)}
                                         </time>
                                     </header>
-                                    <p>{message.text}</p>
+                                    {message.text && <p>{message.text}</p>}
+                                    {message.imageDataUrl && (
+                                        <img
+                                            alt={`Image from ${message.authorName}`}
+                                            className="meet-chat-image"
+                                            src={message.imageDataUrl}
+                                        />
+                                    )}
                                 </article>
                             ))
                         )}
@@ -104,7 +142,26 @@ export function RoomSidebar({
                             rows={3}
                             value={messageText}
                         />
+                        {imageDataUrl && (
+                            <div className="meet-chat-preview">
+                                <img alt="Selected upload" src={imageDataUrl} />
+                                <button className="ghost-button" onClick={clearSelectedImage} type="button">
+                                    Remove
+                                </button>
+                            </div>
+                        )}
+                        {imageError && <p className="meet-chat-error" role="alert">{imageError}</p>}
                         <div className="meet-chat-actions">
+                            <label className={`meet-chat-upload ${chatDisabled || imageProcessing ? 'disabled' : ''}`}>
+                                <input
+                                    accept="image/*"
+                                    disabled={chatDisabled || imageProcessing}
+                                    onChange={handleImageChange}
+                                    ref={fileInputRef}
+                                    type="file"
+                                />
+                                {imageProcessing ? 'Compressing...' : 'Image'}
+                            </label>
                             {showManageActions && (
                                 <button
                                     className="ghost-button"
@@ -117,7 +174,7 @@ export function RoomSidebar({
                             )}
                             <button
                                 className="primary-button"
-                                disabled={chatDisabled || !messageText.trim()}
+                                disabled={chatDisabled || imageProcessing || (!messageText.trim() && !imageDataUrl)}
                                 type="submit"
                             >
                                 Send

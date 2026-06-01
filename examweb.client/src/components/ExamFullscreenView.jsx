@@ -16,7 +16,6 @@ export function ExamFullscreenView({
     monitoringStatus,
     onReenterFullscreen,
     onReset,
-    onRestartScreenShare,
     onSelectAnswer,
     onSubmit,
     result,
@@ -50,11 +49,7 @@ export function ExamFullscreenView({
                 <div className="fullscreen-warning" role="alert">
                     <strong>⚠ Cảnh báo</strong>
                     <span>{fullscreenWarning}</span>
-                    {monitoringStatus === 'stopped' ? (
-                        <button className="ghost-button" onClick={onRestartScreenShare} type="button">
-                            Bật lại chia sẻ
-                        </button>
-                    ) : (
+                    {!isFullscreen && isExamRunning && (
                         <button className="ghost-button" onClick={onReenterFullscreen} type="button">
                             Vào lại toàn màn hình
                         </button>
@@ -64,25 +59,13 @@ export function ExamFullscreenView({
 
             {error && <div className="alert exam-alert">{error}</div>}
 
-            {isExamRunning && (!isFullscreen || monitoringStatus !== 'active') && (
+            {isExamRunning && !isFullscreen && (
                 <div className="exam-monitor-blocker" role="status">
-                    <strong>Chưa đủ điều kiện làm bài</strong>
-                    <span>
-                        {!isFullscreen
-                            ? 'Bạn cần quay lại chế độ toàn màn hình để tiếp tục chọn đáp án.'
-                            : monitoringStatus === 'stopped'
-                            ? 'Bạn cần bật lại chia sẻ màn hình để tiếp tục chọn đáp án.'
-                            : 'Hệ thống đang kết nối giám sát màn hình.'}
-                    </span>
-                    {!isFullscreen ? (
-                        <button className="primary-button" onClick={onReenterFullscreen} type="button">
-                            Vào lại toàn màn hình
-                        </button>
-                    ) : monitoringStatus === 'stopped' && (
-                        <button className="primary-button" onClick={onRestartScreenShare} type="button">
-                            Bật lại chia sẻ màn hình
-                        </button>
-                    )}
+                    <strong>Vui lòng quay lại toàn màn hình</strong>
+                    <span>Bạn cần ở chế độ toàn màn hình để tiếp tục chọn đáp án.</span>
+                    <button className="primary-button" onClick={onReenterFullscreen} type="button">
+                        Vào lại toàn màn hình
+                    </button>
                 </div>
             )}
 
@@ -169,10 +152,10 @@ export function ExamFullscreenView({
 
 function getMonitorStatusText(status) {
     const labels = {
-        active: 'Đang theo dõi',
-        idle: 'Chưa bật',
-        starting: 'Đang kết nối',
-        stopped: 'Đã dừng chia sẻ',
+        active: 'Đang giám sát',
+        idle: 'Chưa bắt đầu',
+        starting: 'Đang chuẩn bị',
+        stopped: 'Đã tạm dừng',
         submitted: 'Đã nộp bài',
     }
     return labels[status] || status

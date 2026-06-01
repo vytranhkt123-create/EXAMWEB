@@ -178,13 +178,17 @@ export function OnlineClassRoom({
         realtimeEventHandlerRef.current = handleRealtimeRoomEvent
     }, [handleRealtimeRoomEvent])
 
-    const sendRoomChatMessage = useCallback(async (text) => {
-        const cleanText = text.trim()
-        if (!cleanText || !selectedRoomId) return
+    const sendRoomChatMessage = useCallback(async (messageInput) => {
+        const payload = typeof messageInput === 'string'
+            ? { text: messageInput, imageDataUrl: null }
+            : messageInput || {}
+        const cleanText = String(payload.text || '').trim()
+        const imageDataUrl = payload.imageDataUrl || null
+        if ((!cleanText && !imageDataUrl) || !selectedRoomId) return
 
         const message = await onlineClassApi('/chat', {
             method: 'POST',
-            body: JSON.stringify({ text: cleanText, roomId: selectedRoomId }),
+            body: JSON.stringify({ text: cleanText, imageDataUrl, roomId: selectedRoomId }),
         })
         setRoomChatMessages((current) =>
             current.some((item) => item.id === message.id)

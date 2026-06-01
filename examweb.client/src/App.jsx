@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ExamFullscreenView } from './components/ExamFullscreenView'
 import { LoginView } from './components/LoginView'
+import { AdminSchedulePanel } from './components/schedule/AdminSchedulePanel'
+import { StudentSchedulePanel } from './components/schedule/StudentSchedulePanel'
 import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConfig'
 import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi } from './services/api'
 import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
@@ -8,6 +10,7 @@ import { createExamMonitorRoomId, useExamProctoring } from './hooks/useExamProct
 import { useOnlineClassWebRTC } from './hooks/useOnlineClassWebRTC'
 import { clearSession, getModeForSession, getPathForMode, getStoredSession, saveSession } from './services/session'
 import { dataUrlToBlob, readFileAsDataUrl } from './utils/file'
+import { compressImageFile } from './utils/image'
 import './App.css'
 
 const initialNewStudent = () => ({
@@ -42,6 +45,7 @@ const ADMIN_SECTIONS = [
     { id: 'students', label: 'Học sinh', icon: '◉' },
     { id: 'tests', label: 'Đề thi', icon: '▤' },
     { id: 'documents', label: 'Tài liệu PDF', icon: '▣' },
+    { id: 'schedule', label: 'Thời khóa biểu', icon: '▦' },
     { id: 'online', label: 'Lớp học ảo', icon: '◍' },
 ]
 
@@ -1024,13 +1028,17 @@ function App() {
         }
     }
 
-    async function sendChatMessage(text) {
-        const cleanText = text.trim()
-        if (!cleanText) return
+    async function sendChatMessage(messageInput) {
+        const payload = typeof messageInput === 'string'
+            ? { text: messageInput, imageDataUrl: null }
+            : messageInput || {}
+        const cleanText = String(payload.text || '').trim()
+        const imageDataUrl = payload.imageDataUrl || null
+        if (!cleanText && !imageDataUrl) return
         try {
             const message = await onlineClassApi('/chat', {
                 method: 'POST',
-                body: JSON.stringify({ text: cleanText }),
+                body: JSON.stringify({ text: cleanText, imageDataUrl }),
             })
             setChatMessages((current) =>
                 current.some((item) => item.id === message.id)
@@ -1575,6 +1583,7 @@ function AdminDashboard({
                             {adminSection === 'students' && 'Quản lý học sinh'}
                             {adminSection === 'tests' && 'Quản lý đề thi'}
                             {adminSection === 'documents' && 'Tài liệu PDF'}
+                            {adminSection === 'schedule' && 'Thời khóa biểu'}
                             {adminSection === 'online' && 'Lớp học online'}
                             {adminSection === 'test-edit' && (adminTest?.testName || 'Chi tiết đề')}
                         </h1>
@@ -1696,6 +1705,8 @@ function AdminDashboard({
                             saving={saving}
                         />
                     )}
+
+                    {adminSection === 'schedule' && <AdminSchedulePanel />}
 
                     {adminSection === 'online' && (
                         <OnlineClassPanel
@@ -2035,6 +2046,13 @@ function StudentLearningHub({
                     Lớp học của tôi
                 </button>
                 <button
+                    className={activeTab === 'schedule' ? 'active' : ''}
+                    onClick={() => setActiveTab('schedule')}
+                    type="button"
+                >
+                    Thời khóa biểu
+                </button>
+                <button
                     className={activeTab === 'materials' ? 'active' : ''}
                     onClick={() => setActiveTab('materials')}
                     type="button"
@@ -2056,6 +2074,8 @@ function StudentLearningHub({
                     onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
                     whiteboardSnapshots={whiteboardSnapshots}
                 />
+            ) : activeTab === 'schedule' ? (
+                <StudentSchedulePanel auth={auth} />
             ) : (
                 <MaterialLibrary materials={materials} />
             )}
@@ -2617,12 +2637,42 @@ function WhiteboardSnapshotList({ canManage = false, onDeleteSnapshot, onUseSnap
 
 function ClassChatPanel({ disabled = false, messages, onClearChat, onSendMessage, showManageActions = false }) {
     const [messageText, setMessageText] = useState('')
+    const [imageDataUrl, setImageDataUrl] = useState('')
+    const [imageError, setImageError] = useState('')
+    const [imageProcessing, setImageProcessing] = useState(false)
+    const fileInputRef = useRef(null)
 
-    function handleSubmit(event) {
+    async function handleImageChange(event) {
+        const file = event.target.files?.[0]
+        if (!file) return
+
+        setImageError('')
+        setImageProcessing(true)
+        try {
+            const compressed = await compressImageFile(file)
+            setImageDataUrl(compressed)
+        } catch (err) {
+            setImageDataUrl('')
+            setImageError(err.message || 'Không thể xử lý ảnh')
+        } finally {
+            setImageProcessing(false)
+        }
+    }
+
+    function clearSelectedImage() {
+        setImageDataUrl('')
+        setImageError('')
+        if (fileInputRef.current) {
+            fileInputRef.current.value = ''
+        }
+    }
+
+    async function handleSubmit(event) {
         event.preventDefault()
-        if (!messageText.trim() || disabled) return
-        onSendMessage(messageText)
+        if ((!messageText.trim() && !imageDataUrl) || disabled || imageProcessing) return
+        await onSendMessage({ text: messageText, imageDataUrl })
         setMessageText('')
+        clearSelectedImage()
     }
 
     return (
@@ -2641,7 +2691,14 @@ function ClassChatPanel({ disabled = false, messages, onClearChat, onSendMessage
                                 <strong>{message.authorName}</strong>
                                 <span>{message.role} · {formatDateTime(message.createdAt)}</span>
                             </div>
-                            <p>{message.text}</p>
+                            {message.text && <p>{message.text}</p>}
+                            {message.imageDataUrl && (
+                                <img
+                                    alt={`Ảnh từ ${message.authorName}`}
+                                    className="chat-message-image"
+                                    src={message.imageDataUrl}
+                                />
+                            )}
                         </article>
                     ))
                 )}
@@ -2654,13 +2711,32 @@ function ClassChatPanel({ disabled = false, messages, onClearChat, onSendMessage
                     rows="3"
                     value={messageText}
                 />
+                {imageDataUrl && (
+                    <div className="chat-image-preview">
+                        <img alt="Ảnh chuẩn bị gửi" src={imageDataUrl} />
+                        <button className="ghost-button" onClick={clearSelectedImage} type="button">
+                            Bỏ ảnh
+                        </button>
+                    </div>
+                )}
+                {imageError && <p className="chat-form-alert" role="alert">{imageError}</p>}
                 <div className="button-row">
+                    <label className={`chat-image-picker ${disabled || imageProcessing ? 'disabled' : ''}`}>
+                        <input
+                            accept="image/*"
+                            disabled={disabled || imageProcessing}
+                            onChange={handleImageChange}
+                            ref={fileInputRef}
+                            type="file"
+                        />
+                        {imageProcessing ? 'Đang nén ảnh...' : 'Thêm ảnh'}
+                    </label>
                     {showManageActions && (
                         <button className="ghost-button" disabled={messages.length === 0} onClick={onClearChat} type="button">
                             Xóa chat
                         </button>
                     )}
-                    <button className="primary-button" disabled={disabled || !messageText.trim()} type="submit">
+                    <button className="primary-button" disabled={disabled || imageProcessing || (!messageText.trim() && !imageDataUrl)} type="submit">
                         Gửi
                     </button>
                 </div>

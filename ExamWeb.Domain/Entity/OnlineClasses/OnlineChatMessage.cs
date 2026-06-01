@@ -12,12 +12,19 @@ namespace ExamWeb.Domain.Entity.OnlineClasses
         public string AuthorName { get; private set; } = string.Empty;
         public string Role { get; private set; } = string.Empty;
         public string? RoomId { get; private set; }
+        public string? ImageDataUrl { get; private set; }
         public DateTime CreatedAt { get; private set; }
 
-        public OnlineChatMessage(string text, int? authorAccountId, string authorName, string role, string? roomId = null)
+        public OnlineChatMessage(
+            string? text,
+            int? authorAccountId,
+            string authorName,
+            string role,
+            string? roomId = null,
+            string? imageDataUrl = null)
         {
             Id = "Chat_" + Guid.NewGuid().ToString("N");
-            ChangeText(text);
+            ChangeContent(text, imageDataUrl);
             AuthorAccountId = authorAccountId;
             AuthorName = string.IsNullOrWhiteSpace(authorName) ? "Người dùng" : authorName.Trim();
             Role = string.IsNullOrWhiteSpace(role) ? "User" : role.Trim();
@@ -25,14 +32,18 @@ namespace ExamWeb.Domain.Entity.OnlineClasses
             CreatedAt = DateTime.UtcNow;
         }
 
-        private void ChangeText(string text)
+        private void ChangeContent(string? text, string? imageDataUrl)
         {
-            if (string.IsNullOrWhiteSpace(text))
+            var cleanText = string.IsNullOrWhiteSpace(text) ? string.Empty : text.Trim();
+            var cleanImageDataUrl = string.IsNullOrWhiteSpace(imageDataUrl) ? null : imageDataUrl.Trim();
+
+            if (string.IsNullOrWhiteSpace(cleanText) && string.IsNullOrWhiteSpace(cleanImageDataUrl))
             {
-                throw new DomainException("Tin nhắn không được bỏ trống");
+                throw new DomainException("Tin nhắn hoặc hình ảnh không được bỏ trống");
             }
 
-            Text = text.Trim();
+            Text = cleanText;
+            ImageDataUrl = cleanImageDataUrl;
         }
     }
 }

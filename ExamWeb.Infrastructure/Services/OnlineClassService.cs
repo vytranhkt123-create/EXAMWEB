@@ -227,17 +227,32 @@ namespace ExamWeb.Infrastructure.Services
                 await EnsureCanUseRoomToolsAsync(request.RoomId, cancellationToken);
             }
 
-            if (request.Text.Length > 1000)
+            var cleanText = string.IsNullOrWhiteSpace(request.Text) ? string.Empty : request.Text.Trim();
+            var cleanImageDataUrl = string.IsNullOrWhiteSpace(request.ImageDataUrl) ? null : request.ImageDataUrl.Trim();
+
+            if (cleanText.Length > 1000)
             {
                 throw new DomainException("Tin nhắn vượt quá 1000 ký tự");
             }
 
+            if (cleanImageDataUrl?.Length > 750_000)
+            {
+                throw new DomainException("Hình ảnh chat quá lớn");
+            }
+
+            if (cleanImageDataUrl != null &&
+                !cleanImageDataUrl.StartsWith("data:image/", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new DomainException("Định dạng hình ảnh chat không hợp lệ");
+            }
+
             var message = new OnlineChatMessage(
-                request.Text,
+                cleanText,
                 _currentUser.AccountId,
                 GetCurrentDisplayName(),
                 _currentUser.Role ?? "User",
-                request.RoomId);
+                request.RoomId,
+                cleanImageDataUrl);
 
             _dbContext.OnlineChatMessages.Add(message);
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -776,6 +791,7 @@ namespace ExamWeb.Infrastructure.Services
                 AuthorName = message.AuthorName,
                 Role = message.Role,
                 RoomId = message.RoomId,
+                ImageDataUrl = message.ImageDataUrl,
                 CreatedAt = message.CreatedAt
             };
         }
