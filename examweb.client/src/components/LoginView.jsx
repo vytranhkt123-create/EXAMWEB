@@ -62,7 +62,7 @@ export function LoginView({ error, loading, onLogin }) {
 
                 <header className="login-form-header">
                     <p className="login-brand-eyebrow">ĐĂNG NHẬP</p>
-                    <h1>Chào mừng bạn đến với Lớp Học Thầy Đạt</h1>
+                    
                     <span>Sử dụng tài khoản do thầy giáo cấp.</span>
                 </header>
 
