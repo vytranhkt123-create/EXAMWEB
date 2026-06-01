@@ -61,8 +61,8 @@ export function LoginView({ error, loading, onLogin }) {
                 </div>
 
                 <header className="login-form-header">
-                    <p className="login-brand-eyebrow">Secure exam workspace</p>
-                    <h1>Sign in to continue</h1>
+                    <p className="login-brand-eyebrow">Chào mừng bạn đến với Lớp Học Thầy Đạt</p>
+                    <h1>Đăng nhập</h1>
                     <span>Sử dụng tài khoản do thầy giáo cấp.</span>
                 </header>
 
