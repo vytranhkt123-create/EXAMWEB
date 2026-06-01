@@ -491,10 +491,7 @@ export function useOnlineClassWebRTC({
                 await renegotiatePeers()
             }
             if (screenVideoRef.current) screenVideoRef.current.srcObject = displayStream
-            if (localVideoRef.current && streamRef.current) {
-                localVideoRef.current.srcObject = streamRef.current
-            }
-
+            if (localVideoRef.current) localVideoRef.current.srcObject = displayStream
             setIsScreenSharing(true)
             setMediaError('')
             return displayStream
