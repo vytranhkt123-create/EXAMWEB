@@ -7,6 +7,7 @@ import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConf
 import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi } from './services/api'
 import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
 import { createExamMonitorRoomId, useExamProctoring } from './hooks/useExamProctoring'
+import { useOnlineClassSocket } from './hooks/useOnlineClassSocket'
 import { useOnlineClassWebRTC } from './hooks/useOnlineClassWebRTC'
 import { clearSession, getModeForSession, getPathForMode, getStoredSession, saveSession } from './services/session'
 import { formatDateTime } from './utils/datetime'
@@ -436,17 +437,6 @@ function App() {
     }, [auth, loadOnlineClassData, loadStudents, loadTests])
 
     useEffect(() => {
-        if (!auth) return undefined
-
-        const interval = window.setInterval(() => {
-            loadOnlineClass()
-            loadChatMessages()
-        }, 6000)
-
-        return () => window.clearInterval(interval)
-    }, [auth, loadChatMessages, loadOnlineClass])
-
-    useEffect(() => {
         if (!studentTest || result || studentTest.questions.length === 0 || timeLeft === null) return undefined
 
         if (timeLeft <= 0) {
@@ -541,11 +531,11 @@ function App() {
     useEffect(() => {
         if (mode !== 'admin' || !adminTest || adminTestTab !== 'monitoring') return undefined
 
-        const interval = window.setInterval(() => {
+        const timer = window.setTimeout(() => {
             loadScreenMonitoring(adminTest.id)
-        }, 5000)
+        }, 0)
 
-        return () => window.clearInterval(interval)
+        return () => window.clearTimeout(timer)
     }, [adminTest, adminTestTab, loadScreenMonitoring, mode])
 
     async function confirmStartExam(forcedTestId = pendingTestId) {
@@ -1134,6 +1124,11 @@ function App() {
         }
     }
 
+    useOnlineClassSocket({
+        auth: auth?.accessToken ? auth : null,
+        onRealtimeEvent: handleOnlineRealtimeEvent,
+    })
+
     function resetStudentWork() {
         stopScreenStream()
         exitExamFullscreen()
@@ -1239,7 +1234,6 @@ function App() {
                 onRemoveDraftAnswer={removeDraftAnswer}
                 onSaveWhiteboard={saveWhiteboardImage}
                 onSendChatMessage={sendChatMessage}
-                onRealtimeEvent={handleOnlineRealtimeEvent}
                 onSetAdminSection={setAdminSection}
                 onSetAdminTestTab={setAdminTestTab}
                 onSetInputMethod={setInputMethod}
@@ -1336,7 +1330,6 @@ function App() {
                     onSaveWhiteboard={saveWhiteboardImage}
                     onSelectTest={requestOpenStudentTest}
                     onSendChatMessage={sendChatMessage}
-                    onRealtimeEvent={handleOnlineRealtimeEvent}
                     onUseWhiteboardSnapshot={useWhiteboardSnapshot}
                     onlineClass={onlineClass}
                     onlineNotice={onlineNotice}
@@ -1426,7 +1419,6 @@ function StudentView({
     onSaveWhiteboard,
     onSelectTest,
     onSendChatMessage,
-    onRealtimeEvent,
     onUseWhiteboardSnapshot,
     onlineClass,
     onlineNotice,
@@ -1473,7 +1465,6 @@ function StudentView({
                     materials={materials}
                     onSaveWhiteboard={onSaveWhiteboard}
                     onSendChatMessage={onSendChatMessage}
-                    onRealtimeEvent={onRealtimeEvent}
                     onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
                     onlineClass={onlineClass}
                     onlineNotice={onlineNotice}
@@ -1523,7 +1514,6 @@ function AdminDashboard({
     onOpenTest,
     onToggleTheme,
     onRemoveDraftAnswer,
-    onRealtimeEvent,
     onSaveWhiteboard,
     onSendChatMessage,
     onSetAdminSection,
@@ -1754,7 +1744,6 @@ function AdminDashboard({
                             onlineNotice={onlineNotice}
                             onClearChat={onClearChat}
                             onDeleteWhiteboardSnapshot={onDeleteWhiteboardSnapshot}
-                            onRealtimeEvent={onRealtimeEvent}
                             onSaveWhiteboard={onSaveWhiteboard}
                             onSendChatMessage={onSendChatMessage}
                             onToggleOnlineLive={onToggleOnlineLive}
@@ -2063,7 +2052,6 @@ function StudentLearningHub({
     materials,
     onSaveWhiteboard,
     onSendChatMessage,
-    onRealtimeEvent,
     onUseWhiteboardSnapshot,
     onlineClass,
     onlineNotice,
@@ -2106,7 +2094,6 @@ function StudentLearningHub({
                     onlineNotice={onlineNotice}
                     onSaveWhiteboard={onSaveWhiteboard}
                     onSendChatMessage={onSendChatMessage}
-                    onRealtimeEvent={onRealtimeEvent}
                     onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
                     whiteboardSnapshots={whiteboardSnapshots}
                 />
@@ -2122,6 +2109,20 @@ function StudentLearningHub({
 function MaterialLibrary({ canManage = false, materials, onDeleteMaterial }) {
     const [selectedId, setSelectedId] = useState('')
     const selectedMaterial = materials.find((material) => material.id === selectedId) || materials[0]
+
+    async function downloadMaterial(material) {
+        if (!material?.id) return
+
+        const blob = await materialFileApi(material.id)
+        const objectUrl = URL.createObjectURL(blob)
+        const link = document.createElement('a')
+        link.download = material.fileName || 'document.pdf'
+        link.href = objectUrl
+        document.body.appendChild(link)
+        link.click()
+        link.remove()
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0)
+    }
 
     if (materials.length === 0) {
         return (
@@ -2165,9 +2166,9 @@ function MaterialLibrary({ canManage = false, materials, onDeleteMaterial }) {
                             <p>{selectedMaterial.description || 'Không có ghi chú'}</p>
                         </div>
                         <div className="row-actions">
-                            <a className="ghost-button" download={selectedMaterial.fileName} href={selectedMaterial.dataUrl}>
+                            <button className="ghost-button" onClick={() => downloadMaterial(selectedMaterial)} type="button">
                                 Tải PDF
-                            </a>
+                            </button>
                             {canManage && (
                                 <button
                                     className="delete-button outline"
@@ -2254,7 +2255,6 @@ function OnlineClassPanel({
     canManage = false,
     onlineClass,
     onlineNotice,
-    onRealtimeEvent,
     onToggleOnlineLive,
     onUpdateOnlineClass,
 }) {
@@ -2318,7 +2318,6 @@ function OnlineClassPanel({
                     <MeetingDevicePanel
                         auth={auth}
                         canManage={canManage}
-                        onRealtimeEvent={onRealtimeEvent}
                     />
                 </div>
             </div>
@@ -2329,13 +2328,11 @@ function OnlineClassPanel({
 function MeetingDevicePanel({
     auth,
     canManage = false,
-    onRealtimeEvent,
 }) {
     return (
         <OnlineClassRoom
             auth={auth}
             canManage={canManage}
-            onRealtimeEvent={onRealtimeEvent}
         />
     )
 }

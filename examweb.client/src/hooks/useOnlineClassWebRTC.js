@@ -61,7 +61,6 @@ export function useOnlineClassWebRTC({
     const [mediaError, setMediaError] = useState('')
     const [micOn, setMicOn] = useState(false)
     const [peers, setPeers] = useState({})
-    const [localAudioLevel, setLocalAudioLevel] = useState(0)
     const [isLocalSpeaking, setIsLocalSpeaking] = useState(false)
 
     const peerList = Object.values(peers)
@@ -125,7 +124,6 @@ export function useOnlineClassWebRTC({
         stop?.()
         audioMonitorStopsRef.current.delete(monitorId)
         if (monitorId === 'local') {
-            setLocalAudioLevel(0)
             setIsLocalSpeaking(false)
         }
     }, [])
@@ -146,19 +144,25 @@ export function useOnlineClassWebRTC({
 
         const dataArray = new Uint8Array(analyser.frequencyBinCount)
         let frameId = 0
+        let lastSpeaking = false
+        let lastUpdateAt = 0
         let stopped = false
 
-        const tick = () => {
+        const tick = (timestamp = 0) => {
             if (stopped) return
-            analyser.getByteTimeDomainData(dataArray)
-            const audioLevel = getAudioLevel(dataArray)
-            const isSpeaking = audioLevel > 0.12
 
-            if (local) {
-                setLocalAudioLevel(audioLevel)
-                setIsLocalSpeaking(isSpeaking)
-            } else {
-                upsertPeer(monitorId, { audioLevel, isSpeaking })
+            if (timestamp - lastUpdateAt >= 100) {
+                lastUpdateAt = timestamp
+                analyser.getByteTimeDomainData(dataArray)
+                const isSpeaking = getAudioLevel(dataArray) > 0.12
+
+                if (isSpeaking !== lastSpeaking && local) {
+                    setIsLocalSpeaking(isSpeaking)
+                } else if (isSpeaking !== lastSpeaking) {
+                    upsertPeer(monitorId, { isSpeaking })
+                }
+
+                lastSpeaking = isSpeaking
             }
 
             frameId = window.requestAnimationFrame(tick)
@@ -434,7 +438,6 @@ export function useOnlineClassWebRTC({
                 track.onended = () => {
                     setMicOn(false)
                     setIsLocalSpeaking(false)
-                    setLocalAudioLevel(0)
                 }
             })
             if (!isScreenSharing && localVideoRef.current) {
@@ -522,7 +525,6 @@ export function useOnlineClassWebRTC({
         setMicOn(next)
         if (!next) {
             setIsLocalSpeaking(false)
-            setLocalAudioLevel(0)
         }
         await renegotiatePeers()
     }, [micOn, renegotiatePeers, startMedia])
@@ -573,7 +575,6 @@ export function useOnlineClassWebRTC({
         isScreenSharing,
         joinMeeting,
         leaveMeeting,
-        localAudioLevel,
         localVideoRef,
         mediaError,
         micOn,

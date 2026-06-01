@@ -13,6 +13,7 @@ namespace ExamWeb.Server.Services
     public class OnlineClassSocketManager : IOnlineClassRealtimeNotifier
     {
         private const string ExamMonitorRoomPrefix = "exam-monitor:";
+        private const int MaxInboundMessageBytes = 1024 * 1024;
 
         private static readonly HashSet<string> SignalingMessageTypes = new(StringComparer.OrdinalIgnoreCase)
         {
@@ -101,6 +102,7 @@ namespace ExamWeb.Server.Services
             while (connection.Socket.State == WebSocketState.Open)
             {
                 var builder = new StringBuilder();
+                var receivedBytes = 0;
                 WebSocketReceiveResult result;
 
                 do
@@ -109,6 +111,13 @@ namespace ExamWeb.Server.Services
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
                         await connection.Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "closed", CancellationToken.None);
+                        return;
+                    }
+
+                    receivedBytes += result.Count;
+                    if (receivedBytes > MaxInboundMessageBytes)
+                    {
+                        await connection.Socket.CloseAsync(WebSocketCloseStatus.MessageTooBig, "message too large", CancellationToken.None);
                         return;
                     }
 
@@ -457,7 +466,6 @@ namespace ExamWeb.Server.Services
                 studentName = monitorEvent.StudentName,
                 eventType = monitorEvent.EventType,
                 message = monitorEvent.Message,
-                imageDataUrl = monitorEvent.ImageDataUrl,
                 createdAt = monitorEvent.CreatedAt
             };
 

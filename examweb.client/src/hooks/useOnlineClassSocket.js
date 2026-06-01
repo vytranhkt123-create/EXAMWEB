@@ -126,7 +126,6 @@ export function useOnlineClassSocket({
             socketRef.current = socket
 
             socket.onopen = () => {
-                reconnectAttemptRef.current = 0
                 console.log('[ExamWeb] Realtime socket connected')
                 reconnectJoinRoom(socket)
             }
@@ -161,6 +160,7 @@ export function useOnlineClassSocket({
                 }
 
                 if (type === 'connected') {
+                    reconnectAttemptRef.current = 0
                     connectionIdRef.current = payload.connectionId
                     return
                 }

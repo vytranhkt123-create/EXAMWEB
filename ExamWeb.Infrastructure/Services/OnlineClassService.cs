@@ -27,12 +27,24 @@ namespace ExamWeb.Infrastructure.Services
 
         public async Task<IReadOnlyList<MaterialDto>> GetMaterialsAsync(CancellationToken cancellationToken = default)
         {
-            var materials = await _dbContext.ClassMaterials
+            return await _dbContext.ClassMaterials
                 .AsNoTracking()
                 .OrderByDescending(x => x.CreatedAt)
+                .Select(x => new MaterialDto
+                {
+                    Id = x.Id,
+                    Title = x.Title,
+                    Description = x.Description,
+                    FileName = x.FileName,
+                    ContentType = x.ContentType,
+                    FileSize = x.FileSize,
+                    FileUrl = $"/api/materials/{x.Id}/file",
+                    DataUrl = string.Empty,
+                    CreatedByAccountId = x.CreatedByAccountId,
+                    CreatedByName = x.CreatedByName,
+                    CreatedAt = x.CreatedAt
+                })
                 .ToListAsync(cancellationToken);
-
-            return materials.Select(MapMaterial).ToList();
         }
 
         public async Task<MaterialFileDto?> GetMaterialFileAsync(string materialId, CancellationToken cancellationToken = default)
@@ -277,9 +289,7 @@ namespace ExamWeb.Infrastructure.Services
                 ? messagesQuery.Where(x => x.RoomId == null)
                 : messagesQuery.Where(x => x.RoomId == roomId);
 
-            var messages = await messagesQuery.ToListAsync(cancellationToken);
-            _dbContext.OnlineChatMessages.RemoveRange(messages);
-            await _dbContext.SaveChangesAsync(cancellationToken);
+            await messagesQuery.ExecuteDeleteAsync(cancellationToken);
             if (!string.IsNullOrWhiteSpace(roomId))
             {
                 await _notifier.BroadcastToRoomAsync(roomId, "chat-cleared", new { roomId }, cancellationToken);
@@ -529,13 +539,61 @@ namespace ExamWeb.Infrastructure.Services
                 .OrderByDescending(x => x.CreatedAt)
                 .ToListAsync(cancellationToken);
 
-            var result = new List<OnlineClassRoomDto>();
-            foreach (var room in rooms)
+            if (rooms.Count == 0)
             {
-                result.Add(await MapRoomDtoAsync(room.Id, cancellationToken, room));
+                return Array.Empty<OnlineClassRoomDto>();
             }
 
-            return result;
+            var roomIds = rooms.Select(x => x.Id).ToList();
+            var memberCounts = await _dbContext.ClassRoomMembers
+                .AsNoTracking()
+                .Where(x => roomIds.Contains(x.RoomId))
+                .GroupBy(x => x.RoomId)
+                .Select(x => new { RoomId = x.Key, Count = x.Count() })
+                .ToDictionaryAsync(x => x.RoomId, x => x.Count, cancellationToken);
+
+            var currentMemberRoomIds = _currentUser.IsAdmin
+                ? roomIds.ToHashSet()
+                : await _dbContext.ClassRoomMembers
+                    .AsNoTracking()
+                    .Where(x => x.AccountId == accountId && roomIds.Contains(x.RoomId))
+                    .Select(x => x.RoomId)
+                    .ToHashSetAsync(cancellationToken);
+
+            var memberAccountIdsByRoom = new Dictionary<string, IReadOnlyList<int>>();
+            if (_currentUser.IsAdmin)
+            {
+                var roomStudentPairs = await _dbContext.ClassRoomMembers
+                    .AsNoTracking()
+                    .Where(x => roomIds.Contains(x.RoomId))
+                    .Join(
+                        _dbContext.Accounts.AsNoTracking().Where(x => x.Role == "User"),
+                        member => member.AccountId,
+                        account => account.Id,
+                        (member, account) => new { member.RoomId, account.Id })
+                    .OrderBy(x => x.RoomId)
+                    .ThenBy(x => x.Id)
+                    .ToListAsync(cancellationToken);
+
+                memberAccountIdsByRoom = roomStudentPairs
+                    .GroupBy(x => x.RoomId)
+                    .ToDictionary(
+                        x => x.Key,
+                        x => (IReadOnlyList<int>)x.Select(item => item.Id).ToList());
+            }
+
+            return rooms
+                .Select(room =>
+                {
+                    memberCounts.TryGetValue(room.Id, out var memberCount);
+                    memberAccountIdsByRoom.TryGetValue(room.Id, out var memberAccountIds);
+                    return MapRoomDto(
+                        room,
+                        memberCount,
+                        currentMemberRoomIds.Contains(room.Id),
+                        memberAccountIds ?? Array.Empty<int>());
+                })
+                .ToList();
         }
 
         public async Task<bool> CanAccessRoomAsync(string roomId, CancellationToken cancellationToken = default)
@@ -597,6 +655,15 @@ namespace ExamWeb.Infrastructure.Services
                 ? await GetRoomStudentAccountIdsAsync(roomId, cancellationToken)
                 : Array.Empty<int>();
 
+            return MapRoomDto(room, memberCount, isMember, memberAccountIds);
+        }
+
+        private static OnlineClassRoomDto MapRoomDto(
+            OnlineClassRoom room,
+            int memberCount,
+            bool isMember,
+            IReadOnlyList<int> memberAccountIds)
+        {
             return new OnlineClassRoomDto
             {
                 Id = room.Id,
@@ -748,7 +815,7 @@ namespace ExamWeb.Infrastructure.Services
                 ContentType = material.ContentType,
                 FileSize = material.FileSize,
                 FileUrl = $"/api/materials/{material.Id}/file",
-                DataUrl = $"data:{material.ContentType};base64,{Convert.ToBase64String(material.Content)}",
+                DataUrl = string.Empty,
                 CreatedByAccountId = material.CreatedByAccountId,
                 CreatedByName = material.CreatedByName,
                 CreatedAt = material.CreatedAt
