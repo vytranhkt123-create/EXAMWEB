@@ -158,7 +158,10 @@ namespace ExamWeb.Server
                 app.UseHttpsRedirection();
             }
 
-            app.UseWebSockets();
+            app.UseWebSockets(new WebSocketOptions
+            {
+                KeepAliveInterval = TimeSpan.FromSeconds(30)
+            });
             app.UseCors("AllowAll");
             app.UseAuthentication();
             app.UseAuthorization();

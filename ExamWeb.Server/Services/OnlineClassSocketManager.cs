@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Buffers;
 using System.Net.WebSockets;
 using System.Security.Claims;
 using System.Text;
@@ -20,6 +21,7 @@ namespace ExamWeb.Server.Services
             "offer",
             "answer",
             "ice-candidate",
+            "ice-candidates",
         };
 
         private readonly ConcurrentDictionary<string, OnlineClassSocketConnection> _connections = new();
@@ -58,26 +60,25 @@ namespace ExamWeb.Server.Services
 
             _connections[connection.ConnectionId] = connection;
 
-            await SendAsync(connection, "connected", new
-            {
-                connectionId = connection.ConnectionId,
-                peers = Array.Empty<object>()
-            });
-
             try
             {
-                await ReceiveLoopAsync(connection);
+                await SendAsync(connection, "connected", new
+                {
+                    connectionId = connection.ConnectionId,
+                    peers = Array.Empty<object>()
+                }, context.RequestAborted);
+
+                await ReceiveLoopAsync(connection, context.RequestAborted);
+            }
+            catch (OperationCanceledException)
+            {
+            }
+            catch (WebSocketException)
+            {
             }
             finally
             {
-                _connections.TryRemove(connection.ConnectionId, out _);
-                if (connection.IsInMeeting && !string.IsNullOrWhiteSpace(connection.RoomId))
-                {
-                    await BroadcastToRoomMeetingAsync(
-                        connection.RoomId,
-                        "peer-left",
-                        new { connectionId = connection.ConnectionId });
-                }
+                await RemoveConnectionAsync(connection.ConnectionId, notifyPeers: true);
             }
         }
 
@@ -95,41 +96,64 @@ namespace ExamWeb.Server.Services
             return BroadcastAsync(eventType, payload, roomId, exceptConnectionId: null, cancellationToken);
         }
 
-        private async Task ReceiveLoopAsync(OnlineClassSocketConnection connection)
+        private async Task ReceiveLoopAsync(
+            OnlineClassSocketConnection connection,
+            CancellationToken cancellationToken)
         {
-            var buffer = new byte[64 * 1024];
-
-            while (connection.Socket.State == WebSocketState.Open)
+            var buffer = ArrayPool<byte>.Shared.Rent(16 * 1024);
+            try
             {
-                var builder = new StringBuilder();
-                var receivedBytes = 0;
-                WebSocketReceiveResult result;
-
-                do
+                while (connection.Socket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
                 {
-                    result = await connection.Socket.ReceiveAsync(buffer, CancellationToken.None);
-                    if (result.MessageType == WebSocketMessageType.Close)
-                    {
-                        await connection.Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "closed", CancellationToken.None);
-                        return;
-                    }
+                    using var messageStream = new MemoryStream();
+                    var receivedBytes = 0;
+                    WebSocketReceiveResult result;
 
-                    receivedBytes += result.Count;
-                    if (receivedBytes > MaxInboundMessageBytes)
+                    do
                     {
-                        await connection.Socket.CloseAsync(WebSocketCloseStatus.MessageTooBig, "message too large", CancellationToken.None);
-                        return;
-                    }
+                        result = await connection.Socket.ReceiveAsync(
+                            new ArraySegment<byte>(buffer),
+                            cancellationToken);
+                        if (result.MessageType == WebSocketMessageType.Close)
+                        {
+                            await connection.Socket.CloseAsync(
+                                WebSocketCloseStatus.NormalClosure,
+                                "closed",
+                                cancellationToken);
+                            return;
+                        }
 
-                    builder.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
+                        receivedBytes += result.Count;
+                        if (receivedBytes > MaxInboundMessageBytes)
+                        {
+                            await connection.Socket.CloseAsync(
+                                WebSocketCloseStatus.MessageTooBig,
+                                "message too large",
+                                cancellationToken);
+                            return;
+                        }
+
+                        messageStream.Write(buffer, 0, result.Count);
+                    }
+                    while (!result.EndOfMessage);
+
+                    var rawMessage = Encoding.UTF8.GetString(
+                        messageStream.GetBuffer(),
+                        0,
+                        checked((int)messageStream.Length));
+                    await HandleClientMessageAsync(connection, rawMessage, cancellationToken);
                 }
-                while (!result.EndOfMessage);
-
-                await HandleClientMessageAsync(connection, builder.ToString());
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
             }
         }
 
-        private async Task HandleClientMessageAsync(OnlineClassSocketConnection connection, string rawMessage)
+        private async Task HandleClientMessageAsync(
+            OnlineClassSocketConnection connection,
+            string rawMessage,
+            CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(rawMessage))
             {
@@ -161,20 +185,20 @@ namespace ExamWeb.Server.Services
 
                 if (type.Equals("ping", StringComparison.OrdinalIgnoreCase))
                 {
-                    await SendAsync(connection, "pong", new { at = DateTime.UtcNow });
+                    await SendAsync(connection, "pong", new { at = DateTime.UtcNow }, cancellationToken);
                     return;
                 }
 
                 if (type.Equals("join-room", StringComparison.OrdinalIgnoreCase))
                 {
                     var roomId = ReadRoomId(document.RootElement);
-                    await JoinRoomAsync(connection, roomId);
+                    await JoinRoomAsync(connection, roomId, cancellationToken);
                     return;
                 }
 
                 if (type.Equals("leave-room", StringComparison.OrdinalIgnoreCase))
                 {
-                    await LeaveRoomAsync(connection);
+                    await LeaveRoomAsync(connection, cancellationToken: cancellationToken);
                     return;
                 }
 
@@ -185,7 +209,7 @@ namespace ExamWeb.Server.Services
 
                 if (type.Equals("exam-monitor-event", StringComparison.OrdinalIgnoreCase))
                 {
-                    await HandleExamMonitorEventAsync(connection, document.RootElement);
+                    await HandleExamMonitorEventAsync(connection, document.RootElement, cancellationToken);
                     return;
                 }
 
@@ -207,13 +231,14 @@ namespace ExamWeb.Server.Services
                             fromDisplayName = connection.DisplayName,
                             payload = roomPayload
                         },
-                        exceptConnectionId: connection.ConnectionId);
+                        exceptConnectionId: connection.ConnectionId,
+                        cancellationToken: cancellationToken);
                     return;
                 }
 
                 if (SignalingMessageTypes.Contains(type))
                 {
-                    await RelaySignalingAsync(connection, type, document.RootElement);
+                    await RelaySignalingAsync(connection, type, document.RootElement, cancellationToken);
                 }
             }
         }
@@ -221,7 +246,8 @@ namespace ExamWeb.Server.Services
         private async Task RelaySignalingAsync(
             OnlineClassSocketConnection connection,
             string type,
-            JsonElement root)
+            JsonElement root,
+            CancellationToken cancellationToken)
         {
             if (!root.TryGetProperty("targetConnectionId", out var targetElement))
             {
@@ -247,17 +273,27 @@ namespace ExamWeb.Server.Services
                 payload = payloadElement.Clone();
             }
 
-            await SendAsync(target, type, new
+            try
             {
-                fromConnectionId = connection.ConnectionId,
-                fromDisplayName = connection.DisplayName,
-                fromRole = connection.Role,
-                roomId = connection.RoomId,
-                payload
-            });
+                await SendAsync(target, type, new
+                {
+                    fromConnectionId = connection.ConnectionId,
+                    fromDisplayName = connection.DisplayName,
+                    fromRole = connection.Role,
+                    roomId = connection.RoomId,
+                    payload
+                }, cancellationToken);
+            }
+            catch
+            {
+                await RemoveConnectionAsync(target.ConnectionId, notifyPeers: true);
+            }
         }
 
-        private async Task JoinRoomAsync(OnlineClassSocketConnection connection, string? roomId)
+        private async Task JoinRoomAsync(
+            OnlineClassSocketConnection connection,
+            string? roomId,
+            CancellationToken cancellationToken)
         {
             if (string.IsNullOrWhiteSpace(roomId))
             {
@@ -265,7 +301,7 @@ namespace ExamWeb.Server.Services
                 return;
             }
 
-            if (!await CanAccessRoomAsync(connection, roomId))
+            if (!await CanAccessRoomAsync(connection, roomId, cancellationToken))
             {
                 await SendAsync(connection, "room-error", new { message = "Bạn không có quyền vào phòng học này" });
                 return;
@@ -274,7 +310,7 @@ namespace ExamWeb.Server.Services
             if (connection.IsInMeeting &&
                 !string.Equals(connection.RoomId, roomId, StringComparison.Ordinal))
             {
-                await LeaveRoomAsync(connection, notifyPeers: true);
+                await LeaveRoomAsync(connection, notifyPeers: true, cancellationToken: cancellationToken);
             }
 
             var wasInSameRoom = connection.IsInMeeting &&
@@ -284,7 +320,7 @@ namespace ExamWeb.Server.Services
             connection.IsInMeeting = true;
 
             var peers = GetRoomPeers(roomId, connection.ConnectionId);
-            await SendAsync(connection, "meeting-peers", new { roomId, peers });
+            await SendAsync(connection, "meeting-peers", new { roomId, peers }, cancellationToken);
 
             if (!wasInSameRoom)
             {
@@ -292,11 +328,15 @@ namespace ExamWeb.Server.Services
                     roomId,
                     "peer-joined",
                     CreatePeerPayload(connection),
-                    exceptConnectionId: connection.ConnectionId);
+                    exceptConnectionId: connection.ConnectionId,
+                    cancellationToken: cancellationToken);
             }
         }
 
-        private async Task LeaveRoomAsync(OnlineClassSocketConnection connection, bool notifyPeers = true)
+        private async Task LeaveRoomAsync(
+            OnlineClassSocketConnection connection,
+            bool notifyPeers = true,
+            CancellationToken cancellationToken = default)
         {
             if (!connection.IsInMeeting || string.IsNullOrWhiteSpace(connection.RoomId))
             {
@@ -309,7 +349,11 @@ namespace ExamWeb.Server.Services
 
             if (notifyPeers)
             {
-                await BroadcastToRoomMeetingAsync(roomId, "peer-left", new { connectionId = connection.ConnectionId });
+                await BroadcastToRoomMeetingAsync(
+                    roomId,
+                    "peer-left",
+                    new { connectionId = connection.ConnectionId },
+                    cancellationToken: cancellationToken);
             }
         }
 
@@ -325,19 +369,22 @@ namespace ExamWeb.Server.Services
                 .ToList();
         }
 
-        private async Task<bool> CanAccessRoomAsync(OnlineClassSocketConnection connection, string roomId)
+        private async Task<bool> CanAccessRoomAsync(
+            OnlineClassSocketConnection connection,
+            string roomId,
+            CancellationToken cancellationToken)
         {
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
             if (TryReadExamMonitorRoom(roomId, out var examTestId, out _))
             {
-                return await CanAccessExamMonitorRoomAsync(dbContext, connection, examTestId);
+                return await CanAccessExamMonitorRoomAsync(dbContext, connection, examTestId, cancellationToken);
             }
 
             var room = await dbContext.OnlineClassRooms
                 .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == roomId);
+                .FirstOrDefaultAsync(x => x.Id == roomId, cancellationToken);
 
             if (room == null)
             {
@@ -356,19 +403,20 @@ namespace ExamWeb.Server.Services
 
             return room.IsLive && await dbContext.ClassRoomMembers
                 .AsNoTracking()
-                .AnyAsync(x => x.RoomId == roomId && x.AccountId == connection.AccountId.Value);
+                .AnyAsync(x => x.RoomId == roomId && x.AccountId == connection.AccountId.Value, cancellationToken);
         }
 
         private static async Task<bool> CanAccessExamMonitorRoomAsync(
             AppDbContext dbContext,
             OnlineClassSocketConnection connection,
-            string testId)
+            string testId,
+            CancellationToken cancellationToken)
         {
             if (connection.IsAdmin)
             {
                 return await dbContext.Tests
                     .AsNoTracking()
-                    .AnyAsync(x => x.Id == testId);
+                    .AnyAsync(x => x.Id == testId, cancellationToken);
             }
 
             if (!connection.AccountId.HasValue)
@@ -378,10 +426,13 @@ namespace ExamWeb.Server.Services
 
             return await dbContext.TestStudentAccesses
                 .AsNoTracking()
-                .AnyAsync(x => x.TestId == testId && x.AccountId == connection.AccountId.Value);
+                .AnyAsync(x => x.TestId == testId && x.AccountId == connection.AccountId.Value, cancellationToken);
         }
 
-        private async Task HandleExamMonitorEventAsync(OnlineClassSocketConnection connection, JsonElement root)
+        private async Task HandleExamMonitorEventAsync(
+            OnlineClassSocketConnection connection,
+            JsonElement root,
+            CancellationToken cancellationToken)
         {
             if (connection.IsAdmin ||
                 string.IsNullOrWhiteSpace(connection.RoomId) ||
@@ -418,7 +469,7 @@ namespace ExamWeb.Server.Services
             using var scope = _scopeFactory.CreateScope();
             var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-            if (!await CanAccessExamMonitorRoomAsync(dbContext, connection, testId))
+            if (!await CanAccessExamMonitorRoomAsync(dbContext, connection, testId, cancellationToken))
             {
                 await SendAsync(connection, "exam-monitor-error", new { message = "Bạn không có quyền theo dõi đề thi này" });
                 return;
@@ -426,7 +477,7 @@ namespace ExamWeb.Server.Services
 
             var test = await dbContext.Tests
                 .AsNoTracking()
-                .FirstOrDefaultAsync(x => x.Id == testId);
+                .FirstOrDefaultAsync(x => x.Id == testId, cancellationToken);
 
             if (test == null)
             {
@@ -438,7 +489,7 @@ namespace ExamWeb.Server.Services
             {
                 var account = await dbContext.Accounts
                     .AsNoTracking()
-                    .FirstOrDefaultAsync(x => x.Id == connection.AccountId.Value);
+                    .FirstOrDefaultAsync(x => x.Id == connection.AccountId.Value, cancellationToken);
                 if (account != null)
                 {
                     studentName = account.DisplayName;
@@ -455,7 +506,7 @@ namespace ExamWeb.Server.Services
                 imageDataUrl);
 
             dbContext.ExamMonitorEvents.Add(monitorEvent);
-            await dbContext.SaveChangesAsync();
+            await dbContext.SaveChangesAsync(cancellationToken);
 
             var eventPayload = new
             {
@@ -469,8 +520,8 @@ namespace ExamWeb.Server.Services
                 createdAt = monitorEvent.CreatedAt
             };
 
-            await SendAsync(connection, "exam-monitor-event-saved", eventPayload);
-            await BroadcastToAdminsAsync("exam-monitor-event-recorded", eventPayload);
+            await SendAsync(connection, "exam-monitor-event-saved", eventPayload, cancellationToken);
+            await BroadcastToAdminsAsync("exam-monitor-event-recorded", eventPayload, cancellationToken);
         }
 
         private Task BroadcastAsync(
@@ -519,18 +570,60 @@ namespace ExamWeb.Server.Services
             return SendToConnectionsAsync(connections, eventType, payload, cancellationToken);
         }
 
+        private async Task RemoveConnectionAsync(
+            string connectionId,
+            bool notifyPeers,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_connections.TryRemove(connectionId, out var connection))
+            {
+                return;
+            }
+
+            var roomId = connection.RoomId;
+            var wasInMeeting = connection.IsInMeeting && !string.IsNullOrWhiteSpace(roomId);
+            connection.IsInMeeting = false;
+            connection.RoomId = null;
+
+            try
+            {
+                connection.Socket.Abort();
+            }
+            catch
+            {
+            }
+
+            if (notifyPeers && wasInMeeting)
+            {
+                await BroadcastToRoomMeetingAsync(
+                    roomId!,
+                    "peer-left",
+                    new { connectionId },
+                    cancellationToken: cancellationToken);
+            }
+        }
+
         private async Task SendToConnectionsAsync(
             IEnumerable<OnlineClassSocketConnection> connections,
             string eventType,
             object? payload,
             CancellationToken cancellationToken = default)
         {
+            var connectionSnapshot = connections
+                .Where(connection => connection.Socket.State == WebSocketState.Open)
+                .ToArray();
+            if (connectionSnapshot.Length == 0)
+            {
+                return;
+            }
+
+            var bytes = Encoding.UTF8.GetBytes(SerializeEnvelope(eventType, payload));
             var staleConnections = new ConcurrentBag<string>();
-            var sendTasks = connections.Select(async connection =>
+            var sendTasks = connectionSnapshot.Select(async connection =>
             {
                 try
                 {
-                    await SendAsync(connection, eventType, payload, cancellationToken);
+                    await SendSerializedAsync(connection, bytes, cancellationToken);
                 }
                 catch
                 {
@@ -542,7 +635,7 @@ namespace ExamWeb.Server.Services
 
             foreach (var connectionId in staleConnections)
             {
-                _connections.TryRemove(connectionId, out _);
+                await RemoveConnectionAsync(connectionId, notifyPeers: true);
             }
         }
 
@@ -554,19 +647,31 @@ namespace ExamWeb.Server.Services
         {
             if (connection.Socket.State != WebSocketState.Open)
             {
-                return;
+                throw new WebSocketException("Socket is not open.");
             }
 
-            var envelope = JsonSerializer.Serialize(new
+            var bytes = Encoding.UTF8.GetBytes(SerializeEnvelope(type, payload));
+            await SendSerializedAsync(connection, bytes, cancellationToken);
+        }
+
+        private async Task SendSerializedAsync(
+            OnlineClassSocketConnection connection,
+            byte[] bytes,
+            CancellationToken cancellationToken)
+        {
+            if (connection.Socket.State != WebSocketState.Open)
             {
-                type,
-                payload
-            }, _jsonOptions);
-            var bytes = Encoding.UTF8.GetBytes(envelope);
+                throw new WebSocketException("Socket is not open.");
+            }
 
             await connection.SendLock.WaitAsync(cancellationToken);
             try
             {
+                if (connection.Socket.State != WebSocketState.Open)
+                {
+                    throw new WebSocketException("Socket is not open.");
+                }
+
                 await connection.Socket.SendAsync(
                     bytes,
                     WebSocketMessageType.Text,
@@ -577,6 +682,15 @@ namespace ExamWeb.Server.Services
             {
                 connection.SendLock.Release();
             }
+        }
+
+        private string SerializeEnvelope(string type, object? payload)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                type,
+                payload
+            }, _jsonOptions);
         }
 
         private static object CreatePeerPayload(OnlineClassSocketConnection connection)

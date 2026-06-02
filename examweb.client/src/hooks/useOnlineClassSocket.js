@@ -64,8 +64,13 @@ export function useOnlineClassSocket({
     const sendSocketMessage = useCallback((message) => {
         const socket = socketRef.current
         if (!socket || socket.readyState !== WebSocket.OPEN) return false
-        socket.send(JSON.stringify(message))
-        return true
+        try {
+            socket.send(JSON.stringify(message))
+            return true
+        } catch {
+            socket.close()
+            return false
+        }
     }, [])
 
     const joinRoom = useCallback((roomId) => {
@@ -202,7 +207,7 @@ export function useOnlineClassSocket({
                     return
                 }
 
-                if (type === 'ice-candidate') {
+                if (type === 'ice-candidate' || type === 'ice-candidates') {
                     await handlers.onIceCandidate?.(payload)
                 }
             }

@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { RTC_ICE_SERVERS } from '../config/appConfig'
+import {
+    RTC_CONFIGURATION,
+    RTC_ICE_CANDIDATE_BATCH_MS,
+    RTC_ICE_DISCONNECTED_RESTART_MS,
+    RTC_ICE_FAILED_RESTART_MS,
+    RTC_ICE_RESTART_MAX_ATTEMPTS,
+} from '../config/appConfig'
 import { useOnlineClassSocket } from './useOnlineClassSocket'
 
 const DEFAULT_MEDIA_CONSTRAINTS = { video: true, audio: true }
@@ -24,6 +30,13 @@ function getAudioLevel(dataArray) {
     return Math.min(1, Math.sqrt(sum / dataArray.length) / 64)
 }
 
+function getIceCandidateList(payload) {
+    if (!payload) return []
+    if (Array.isArray(payload)) return payload.filter(Boolean)
+    if (Array.isArray(payload.candidates)) return payload.candidates.filter(Boolean)
+    return [payload]
+}
+
 export function useOnlineClassWebRTC({
     auth,
     roomId,
@@ -43,6 +56,10 @@ export function useOnlineClassWebRTC({
     const screenStreamRef = useRef(null)
     const peerConnectionsRef = useRef(new Map())
     const pendingIceCandidatesRef = useRef(new Map())
+    const outgoingIceCandidateBatchesRef = useRef(new Map())
+    const iceRestartTimersRef = useRef(new Map())
+    const iceRestartAttemptsRef = useRef(new Map())
+    const peerOfferTasksRef = useRef(new Map())
     const audioMonitorStopsRef = useRef(new Map())
     const connectionIdRef = useRef('')
     const isJoinedRef = useRef(false)
@@ -87,6 +104,61 @@ export function useOnlineClassWebRTC({
         return socketActionsRef.current.sendSignal(type, targetConnectionId, payload)
     }, [])
 
+    const clearOutgoingIceCandidateBatch = useCallback((connectionId) => {
+        const batch = outgoingIceCandidateBatchesRef.current.get(connectionId)
+        if (batch?.timerId) {
+            window.clearTimeout(batch.timerId)
+        }
+        outgoingIceCandidateBatchesRef.current.delete(connectionId)
+    }, [])
+
+    const flushOutgoingIceCandidates = useCallback((connectionId) => {
+        const batch = outgoingIceCandidateBatchesRef.current.get(connectionId)
+        if (!batch || batch.candidates.length === 0) return
+
+        clearOutgoingIceCandidateBatch(connectionId)
+        sendSignalToPeer('ice-candidates', connectionId, {
+            candidates: batch.candidates,
+        })
+    }, [clearOutgoingIceCandidateBatch, sendSignalToPeer])
+
+    const queueOutgoingIceCandidate = useCallback((connectionId, candidate) => {
+        if (!candidate) {
+            flushOutgoingIceCandidates(connectionId)
+            return
+        }
+
+        const batch = outgoingIceCandidateBatchesRef.current.get(connectionId) || {
+            candidates: [],
+            timerId: 0,
+        }
+
+        batch.candidates.push(candidate)
+        if (!batch.timerId) {
+            batch.timerId = window.setTimeout(() => {
+                flushOutgoingIceCandidates(connectionId)
+            }, RTC_ICE_CANDIDATE_BATCH_MS)
+        }
+
+        outgoingIceCandidateBatchesRef.current.set(connectionId, batch)
+    }, [flushOutgoingIceCandidates])
+
+    const clearIceRestartState = useCallback((connectionId) => {
+        const timerId = iceRestartTimersRef.current.get(connectionId)
+        if (timerId) {
+            window.clearTimeout(timerId)
+        }
+        iceRestartTimersRef.current.delete(connectionId)
+        iceRestartAttemptsRef.current.delete(connectionId)
+    }, [])
+
+    const clearPeerTransientState = useCallback((connectionId) => {
+        clearOutgoingIceCandidateBatch(connectionId)
+        clearIceRestartState(connectionId)
+        peerOfferTasksRef.current.delete(connectionId)
+        pendingIceCandidatesRef.current.delete(connectionId)
+    }, [clearIceRestartState, clearOutgoingIceCandidateBatch])
+
     const upsertPeer = useCallback((connectionId, patch) => {
         setPeers((current) => ({
             ...current,
@@ -111,13 +183,13 @@ export function useOnlineClassWebRTC({
         const stopAudioMonitor = audioMonitorStopsRef.current.get(connectionId)
         stopAudioMonitor?.()
         audioMonitorStopsRef.current.delete(connectionId)
-        pendingIceCandidatesRef.current.delete(connectionId)
+        clearPeerTransientState(connectionId)
         setPeers((current) => {
             const next = { ...current }
             delete next[connectionId]
             return next
         })
-    }, [])
+    }, [clearPeerTransientState])
 
     const stopAudioMonitor = useCallback((monitorId) => {
         const stop = audioMonitorStopsRef.current.get(monitorId)
@@ -182,6 +254,14 @@ export function useOnlineClassWebRTC({
         peerConnectionsRef.current.forEach((peerConnection) => peerConnection.close())
         peerConnectionsRef.current.clear()
         pendingIceCandidatesRef.current.clear()
+        outgoingIceCandidateBatchesRef.current.forEach((batch) => {
+            if (batch?.timerId) window.clearTimeout(batch.timerId)
+        })
+        outgoingIceCandidateBatchesRef.current.clear()
+        iceRestartTimersRef.current.forEach((timerId) => window.clearTimeout(timerId))
+        iceRestartTimersRef.current.clear()
+        iceRestartAttemptsRef.current.clear()
+        peerOfferTasksRef.current.clear()
         audioMonitorStopsRef.current.forEach((stop, monitorId) => {
             if (monitorId !== 'local') stop()
         })
@@ -212,13 +292,70 @@ export function useOnlineClassWebRTC({
         }
     }, [receiveOnly])
 
-    const createAndSendOffer = useCallback(async (connectionId) => {
-        const peerConnection = peerConnectionsRef.current.get(connectionId)
-        if (!peerConnection) return
-        const offer = await peerConnection.createOffer()
-        await peerConnection.setLocalDescription(offer)
-        sendSignalToPeer('offer', connectionId, offer)
+    const createAndSendOffer = useCallback(async (connectionId, { restartIce = false } = {}) => {
+        const activeTask = peerOfferTasksRef.current.get(connectionId)
+        if (activeTask) return activeTask
+
+        const task = (async () => {
+            const peerConnection = peerConnectionsRef.current.get(connectionId)
+            if (!peerConnection || peerConnection.signalingState === 'closed') return
+            if (peerConnection.signalingState !== 'stable') return
+
+            if (restartIce && typeof peerConnection.restartIce === 'function') {
+                peerConnection.restartIce()
+            }
+
+            const offer = await peerConnection.createOffer(restartIce ? { iceRestart: true } : undefined)
+            if (peerConnection.signalingState === 'closed') return
+
+            await peerConnection.setLocalDescription(offer)
+            sendSignalToPeer('offer', connectionId, offer)
+        })()
+
+        peerOfferTasksRef.current.set(connectionId, task)
+        try {
+            await task
+        } finally {
+            if (peerOfferTasksRef.current.get(connectionId) === task) {
+                peerOfferTasksRef.current.delete(connectionId)
+            }
+        }
     }, [sendSignalToPeer])
+
+    const shouldInitiateIceRestart = useCallback((connectionId) => {
+        const localConnectionId = connectionIdRef.current
+        return !localConnectionId || localConnectionId < connectionId
+    }, [])
+
+    const scheduleIceRestart = useCallback((connectionId, delayMs) => {
+        if (!isJoinedRef.current || !shouldInitiateIceRestart(connectionId)) return
+        if (iceRestartTimersRef.current.has(connectionId)) return
+
+        const peerConnection = peerConnectionsRef.current.get(connectionId)
+        if (!peerConnection || peerConnection.signalingState === 'closed') return
+
+        const attempts = iceRestartAttemptsRef.current.get(connectionId) || 0
+        if (attempts >= RTC_ICE_RESTART_MAX_ATTEMPTS) return
+
+        const timerId = window.setTimeout(() => {
+            iceRestartTimersRef.current.delete(connectionId)
+
+            const latestPeerConnection = peerConnectionsRef.current.get(connectionId)
+            if (!latestPeerConnection || latestPeerConnection.signalingState === 'closed') return
+            if (latestPeerConnection.iceConnectionState === 'connected' ||
+                latestPeerConnection.iceConnectionState === 'completed') {
+                clearIceRestartState(connectionId)
+                return
+            }
+
+            iceRestartAttemptsRef.current.set(connectionId, attempts + 1)
+            createAndSendOffer(connectionId, { restartIce: true }).catch(() => {
+                setMediaError('Khong the khoi tao lai ket noi video')
+            })
+        }, delayMs)
+
+        iceRestartTimersRef.current.set(connectionId, timerId)
+    }, [clearIceRestartState, createAndSendOffer, shouldInitiateIceRestart])
 
     const flushPendingIceCandidates = useCallback(async (connectionId) => {
         const peerConnection = peerConnectionsRef.current.get(connectionId)
@@ -244,13 +381,17 @@ export function useOnlineClassWebRTC({
             return existing
         }
 
-        const peerConnection = new RTCPeerConnection({ iceServers: RTC_ICE_SERVERS })
+        const peerConnection = new RTCPeerConnection(RTC_CONFIGURATION)
 
         addOutgoingTracks(peerConnection)
 
         peerConnection.onicecandidate = (event) => {
-            if (event.candidate) {
-                sendSignalToPeer('ice-candidate', peer.connectionId, event.candidate)
+            queueOutgoingIceCandidate(peer.connectionId, event.candidate)
+        }
+
+        peerConnection.onicegatheringstatechange = () => {
+            if (peerConnection.iceGatheringState === 'complete') {
+                flushOutgoingIceCandidates(peer.connectionId)
             }
         }
 
@@ -262,12 +403,33 @@ export function useOnlineClassWebRTC({
             })
         }
 
-        peerConnection.onconnectionstatechange = () => {
+        const handleConnectionStateChange = () => {
             upsertPeer(peer.connectionId, {
                 ...peer,
                 connectionState: peerConnection.connectionState,
+                iceConnectionState: peerConnection.iceConnectionState,
             })
+
+            if (peerConnection.iceConnectionState === 'connected' ||
+                peerConnection.iceConnectionState === 'completed' ||
+                peerConnection.connectionState === 'connected') {
+                clearIceRestartState(peer.connectionId)
+                return
+            }
+
+            if (peerConnection.iceConnectionState === 'failed' ||
+                peerConnection.connectionState === 'failed') {
+                scheduleIceRestart(peer.connectionId, RTC_ICE_FAILED_RESTART_MS)
+                return
+            }
+
+            if (peerConnection.iceConnectionState === 'disconnected' ||
+                peerConnection.connectionState === 'disconnected') {
+                scheduleIceRestart(peer.connectionId, RTC_ICE_DISCONNECTED_RESTART_MS)
+            }
         }
+        peerConnection.onconnectionstatechange = handleConnectionStateChange
+        peerConnection.oniceconnectionstatechange = handleConnectionStateChange
 
         peerConnectionsRef.current.set(peer.connectionId, peerConnection)
         upsertPeer(peer.connectionId, peer)
@@ -281,7 +443,16 @@ export function useOnlineClassWebRTC({
         }
 
         return peerConnection
-    }, [addOutgoingTracks, createAndSendOffer, sendSignalToPeer, startAudioMonitor, upsertPeer])
+    }, [
+        addOutgoingTracks,
+        clearIceRestartState,
+        createAndSendOffer,
+        flushOutgoingIceCandidates,
+        queueOutgoingIceCandidate,
+        scheduleIceRestart,
+        startAudioMonitor,
+        upsertPeer,
+    ])
 
     const handleMeetingPeers = useCallback((meetingPeers) => {
         meetingPeers.forEach((peer) => createPeerConnection(peer, false))
@@ -299,6 +470,10 @@ export function useOnlineClassWebRTC({
         }
         const peerConnection = createPeerConnection(peer, false)
         if (!peerConnection) return
+        if (peerConnection.signalingState !== 'stable') {
+            await peerConnection.setLocalDescription({ type: 'rollback' }).catch(() => {})
+            if (peerConnection.signalingState !== 'stable') return
+        }
         await peerConnection.setRemoteDescription(new RTCSessionDescription(payload.payload))
         await flushPendingIceCandidates(peer.connectionId)
         const answer = await peerConnection.createAnswer()
@@ -316,14 +491,19 @@ export function useOnlineClassWebRTC({
 
     const handleIceCandidate = useCallback(async (payload) => {
         const peerConnection = peerConnectionsRef.current.get(payload.fromConnectionId)
-        if (peerConnection && payload.payload) {
+        const candidates = getIceCandidateList(payload.payload)
+        if (peerConnection && candidates.length > 0) {
             if (!peerConnection.remoteDescription) {
                 const pendingCandidates = pendingIceCandidatesRef.current.get(payload.fromConnectionId) || []
-                pendingCandidates.push(payload.payload)
+                pendingCandidates.push(...candidates)
                 pendingIceCandidatesRef.current.set(payload.fromConnectionId, pendingCandidates)
                 return
             }
-            await peerConnection.addIceCandidate(new RTCIceCandidate(payload.payload)).catch(() => {})
+            await Promise.all(
+                candidates.map((candidate) =>
+                    peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {}),
+                ),
+            )
         }
     }, [])
 
