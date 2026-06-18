@@ -4,7 +4,7 @@ import { LoginView } from './components/LoginView'
 import { AdminSchedulePanel } from './components/schedule/AdminSchedulePanel'
 import { StudentSchedulePanel } from './components/schedule/StudentSchedulePanel'
 import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConfig'
-import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi } from './services/api'
+import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi, updateTestQuestion } from './services/api'
 import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
 import { createExamMonitorRoomId, useExamProctoring } from './hooks/useExamProctoring'
 import { useOnlineClassSocket } from './hooks/useOnlineClassSocket'
@@ -32,6 +32,50 @@ const initialQuestionDraft = () => ({
         { content: '', isCorrect: false },
     ],
 })
+
+function createQuestionEditDraft(question) {
+    const answers = Array.isArray(question?.answers)
+        ? question.answers.map((answer) => ({
+            id: answer.id,
+            content: answer.content || '',
+            isCorrect: Boolean(answer.isCorrect),
+        }))
+        : []
+
+    while (answers.length < 2) {
+        answers.push({ content: '', isCorrect: false })
+    }
+
+    const correctIndex = answers.findIndex((answer) => answer.isCorrect)
+    return {
+        content: question?.content || '',
+        score: question?.score || 1,
+        answers: answers.map((answer, index) => ({
+            ...answer,
+            isCorrect: correctIndex === -1 ? index === 0 : index === correctIndex,
+        })),
+    }
+}
+
+function buildQuestionPayload(draft) {
+    return {
+        content: draft.content.trim(),
+        score: Number(draft.score),
+        answers: draft.answers.map((answer) => ({
+            content: answer.content.trim(),
+            isCorrect: answer.isCorrect,
+        })),
+    }
+}
+
+function summarizeTestQuestions(test, questions) {
+    return {
+        ...test,
+        questions,
+        questionCount: questions.length,
+        scoreTotal: questions.reduce((sum, question) => sum + Number(question.score || 0), 0),
+    }
+}
 
 const initialOnlineClassState = () => ({
     title: 'Lớp học online',
@@ -166,6 +210,8 @@ function App() {
 
     const [inputMethod, setInputMethod] = useState('manual')
     const [questionDraft, setQuestionDraft] = useState(initialQuestionDraft)
+    const [editingQuestion, setEditingQuestion] = useState(null)
+    const [editQuestionDraft, setEditQuestionDraft] = useState(initialQuestionDraft)
     const [jsonDraft, setJsonDraft] = useState('')
     const [materials, setMaterials] = useState([])
     const [onlineClass, setOnlineClass] = useState(initialOnlineClassState)
@@ -715,14 +761,7 @@ function App() {
             return
         }
 
-        const payload = {
-            content: questionDraft.content.trim(),
-            score: Number(questionDraft.score),
-            answers: questionDraft.answers.map((answer) => ({
-                content: answer.content.trim(),
-                isCorrect: answer.isCorrect,
-            })),
-        }
+        const payload = buildQuestionPayload(questionDraft)
 
         setSaving(true)
         setError('')
@@ -787,17 +826,104 @@ function App() {
         }
     }
 
-    async function deleteQuestion(questionId) {
+    async function deleteQuestion(questionId, event) {
+        event?.preventDefault()
+        event?.stopPropagation()
         if (!adminTest) return
+
+        const testId = adminTest.id
+        setSaving(true)
+        setError('')
+        try {
+            await api(`/${testId}/questions/${questionId}`, { method: 'DELETE' })
+            setAdminTest((current) => {
+                if (!current || current.id !== testId) return current
+                return summarizeTestQuestions(
+                    current,
+                    current.questions.filter((question) => question.id !== questionId),
+                )
+            })
+            setEditingQuestion((current) => (current?.id === questionId ? null : current))
+            await loadTests()
+        } catch (err) {
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    function startEditQuestion(question, event) {
+        event?.preventDefault()
+        event?.stopPropagation()
+        setError('')
+        setEditingQuestion(question)
+        setEditQuestionDraft(createQuestionEditDraft(question))
+    }
+
+    function closeEditQuestion() {
+        setEditingQuestion(null)
+        setEditQuestionDraft(initialQuestionDraft())
+    }
+
+    function updateEditQuestionAnswer(index, field, value) {
+        setEditQuestionDraft((current) => {
+            const answers = current.answers.map((answer, answerIndex) => {
+                if (field === 'isCorrect') {
+                    return { ...answer, isCorrect: answerIndex === index }
+                }
+                return answerIndex === index ? { ...answer, [field]: value } : answer
+            })
+            return { ...current, answers }
+        })
+    }
+
+    function addEditQuestionAnswer() {
+        setEditQuestionDraft((current) => ({
+            ...current,
+            answers: [...current.answers, { content: '', isCorrect: false }],
+        }))
+    }
+
+    function removeEditQuestionAnswer(index) {
+        setEditQuestionDraft((current) => {
+            if (current.answers.length <= 2) return current
+            const answers = current.answers.filter((_, answerIndex) => answerIndex !== index)
+            if (!answers.some((answer) => answer.isCorrect)) {
+                answers[0] = { ...answers[0], isCorrect: true }
+            }
+            return { ...current, answers }
+        })
+    }
+
+    async function saveEditedQuestion(event) {
+        event.preventDefault()
+        if (!adminTest || !editingQuestion) return
+
+        const testId = adminTest.id
+        const questionId = editingQuestion.id
+        const payload = buildQuestionPayload(editQuestionDraft)
 
         setSaving(true)
         setError('')
         try {
-            await api(`/${adminTest.id}/questions/${questionId}`, { method: 'DELETE' })
+            const updatedQuestion = await updateTestQuestion(testId, questionId, payload)
+            setAdminTest((current) => {
+                if (!current || current.id !== testId) return current
+                return summarizeTestQuestions(
+                    current,
+                    current.questions.map((question) =>
+                        question.id === questionId ? updatedQuestion : question,
+                    ),
+                )
+            })
+            closeEditQuestion()
             await loadTests()
-            await openAdminTest(adminTest.id)
         } catch (err) {
-            setError(err.message)
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
         } finally {
             setSaving(false)
         }
@@ -1202,8 +1328,10 @@ function App() {
                 attemptHistory={attemptHistory}
                 auth={auth}
                 createdStudentCredentials={createdStudentCredentials}
+                editQuestionDraft={editQuestionDraft}
                 editDurationMinutes={editDurationMinutes}
                 editTestName={editTestName}
+                editingQuestion={editingQuestion}
                 error={error}
                 historyLoading={historyLoading}
                 inputMethod={inputMethod}
@@ -1216,11 +1344,13 @@ function App() {
                 newTestAssignedStudentIds={newTestAssignedStudentIds}
                 newTestName={newTestName}
                 onAddDraftAnswer={addDraftAnswer}
+                onAddEditQuestionAnswer={addEditQuestionAnswer}
                 onAddMaterial={addMaterial}
                 onClearChat={clearChatMessages}
                 onAddQuestion={addQuestion}
                 onChangeStudentPassword={changeStudentPassword}
                 onCloseCreatedStudentCredentials={() => setCreatedStudentCredentials(null)}
+                onCloseEditQuestion={closeEditQuestion}
                 onCreateStudent={createStudentAccount}
                 onCreateTest={createTest}
                 onDeleteMaterial={deleteMaterial}
@@ -1232,16 +1362,20 @@ function App() {
                 onLogout={handleLogout}
                 onOpenTest={openAdminTest}
                 onRemoveDraftAnswer={removeDraftAnswer}
+                onRemoveEditQuestionAnswer={removeEditQuestionAnswer}
+                onSaveEditQuestion={saveEditedQuestion}
                 onSaveWhiteboard={saveWhiteboardImage}
                 onSendChatMessage={sendChatMessage}
                 onSetAdminSection={setAdminSection}
                 onSetAdminTestTab={setAdminTestTab}
                 onSetInputMethod={setInputMethod}
+                onStartEditQuestion={startEditQuestion}
                 onToggleOnlineLive={toggleOnlineClassLive}
                 onToggleAssignedStudent={toggleAssignedStudent}
                 onToggleNewTestAssignedStudent={toggleNewTestAssignedStudent}
                 onUpdateOnlineClass={updateOnlineClassSettings}
                 onUpdateDraftAnswer={updateDraftAnswer}
+                onUpdateEditQuestionAnswer={updateEditQuestionAnswer}
                 onUpdateSettings={updateTestSettings}
                 onUseWhiteboardSnapshot={useWhiteboardSnapshot}
                 onlineClass={onlineClass}
@@ -1250,6 +1384,7 @@ function App() {
                 saving={saving}
                 screenMonitorSessions={screenMonitorSessions}
                 setEditDurationMinutes={setEditDurationMinutes}
+                setEditQuestionDraft={setEditQuestionDraft}
                 setEditTestName={setEditTestName}
                 setJsonDraft={setJsonDraft}
                 setNewDurationMinutes={setNewDurationMinutes}
@@ -1483,8 +1618,10 @@ function AdminDashboard({
     attemptHistory,
     auth,
     createdStudentCredentials,
+    editQuestionDraft,
     editDurationMinutes,
     editTestName,
+    editingQuestion,
     error,
     historyLoading,
     inputMethod,
@@ -1497,11 +1634,13 @@ function AdminDashboard({
     newTestAssignedStudentIds,
     newTestName,
     onAddDraftAnswer,
+    onAddEditQuestionAnswer,
     onAddMaterial,
     onClearChat,
     onAddQuestion,
     onChangeStudentPassword,
     onCloseCreatedStudentCredentials,
+    onCloseEditQuestion,
     onCreateStudent,
     onCreateTest,
     onDeleteMaterial,
@@ -1514,16 +1653,20 @@ function AdminDashboard({
     onOpenTest,
     onToggleTheme,
     onRemoveDraftAnswer,
+    onRemoveEditQuestionAnswer,
+    onSaveEditQuestion,
     onSaveWhiteboard,
     onSendChatMessage,
     onSetAdminSection,
     onSetAdminTestTab,
     onSetInputMethod,
+    onStartEditQuestion,
     onToggleOnlineLive,
     onToggleAssignedStudent,
     onToggleNewTestAssignedStudent,
     onUpdateOnlineClass,
     onUpdateDraftAnswer,
+    onUpdateEditQuestionAnswer,
     onUpdateSettings,
     onUseWhiteboardSnapshot,
     onlineClass,
@@ -1532,6 +1675,7 @@ function AdminDashboard({
     saving,
     screenMonitorSessions,
     setEditDurationMinutes,
+    setEditQuestionDraft,
     setEditTestName,
     setJsonDraft,
     setNewDurationMinutes,
@@ -1942,9 +2086,17 @@ function AdminDashboard({
                                                         <div className="row-actions">
                                                             <span className="score-badge">{formatScore(question.score)} điểm</span>
                                                             <button
+                                                                className="ghost-button compact-button"
+                                                                disabled={saving}
+                                                                onClick={(event) => onStartEditQuestion(question, event)}
+                                                                type="button"
+                                                            >
+                                                                Sửa
+                                                            </button>
+                                                            <button
                                                                 className="delete-button outline"
                                                                 disabled={saving}
-                                                                onClick={() => onDeleteQuestion(question.id)}
+                                                                onClick={(event) => onDeleteQuestion(question.id, event)}
                                                                 type="button"
                                                             >
                                                                 Xóa
@@ -1980,6 +2132,135 @@ function AdminDashboard({
                     )}
                 </div>
             </div>
+
+            <QuestionEditDialog
+                draft={editQuestionDraft}
+                onAddAnswer={onAddEditQuestionAnswer}
+                onCancel={onCloseEditQuestion}
+                onRemoveAnswer={onRemoveEditQuestionAnswer}
+                onSave={onSaveEditQuestion}
+                onSetDraft={setEditQuestionDraft}
+                onUpdateAnswer={onUpdateEditQuestionAnswer}
+                question={editingQuestion}
+                saving={saving}
+            />
+        </div>
+    )
+}
+
+
+function QuestionEditDialog({
+    draft,
+    onAddAnswer,
+    onCancel,
+    onRemoveAnswer,
+    onSave,
+    onSetDraft,
+    onUpdateAnswer,
+    question,
+    saving,
+}) {
+    if (!question) return null
+
+    function handleOverlayClick() {
+        if (!saving) {
+            onCancel()
+        }
+    }
+
+    return (
+        <div className="modal-overlay" onClick={handleOverlayClick} role="presentation">
+            <form
+                aria-modal="true"
+                className="modal-card question-edit-modal"
+                onClick={(event) => event.stopPropagation()}
+                onSubmit={onSave}
+                role="dialog"
+            >
+                <span className="modal-badge">Câu hỏi</span>
+                <h2>Sửa câu hỏi</h2>
+
+                <div className="question-edit-form">
+                    <div className="form-row">
+                        <label htmlFor="edit-question-content">Nội dung câu hỏi</label>
+                        <textarea
+                            autoFocus
+                            id="edit-question-content"
+                            onChange={(event) =>
+                                onSetDraft((current) => ({
+                                    ...current,
+                                    content: event.target.value,
+                                }))
+                            }
+                            required
+                            rows="4"
+                            value={draft.content}
+                        />
+                    </div>
+
+                    <div className="form-row compact">
+                        <label htmlFor="edit-question-score">Điểm số</label>
+                        <input
+                            id="edit-question-score"
+                            min="0.25"
+                            onChange={(event) =>
+                                onSetDraft((current) => ({
+                                    ...current,
+                                    score: event.target.value,
+                                }))
+                            }
+                            required
+                            step="0.25"
+                            type="number"
+                            value={draft.score}
+                        />
+                    </div>
+
+                    <div className="answer-editor">
+                        <label>Các đáp án, chọn một đáp án đúng</label>
+                        {draft.answers.map((answer, index) => (
+                            <div className="answer-edit-row" key={answer.id || index}>
+                                <input
+                                    onChange={(event) => onUpdateAnswer(index, 'content', event.target.value)}
+                                    placeholder={`Đáp án ${index + 1}`}
+                                    required
+                                    value={answer.content}
+                                />
+                                <label className="correct-toggle">
+                                    <input
+                                        checked={answer.isCorrect}
+                                        name={`edit-correct-answer-${question.id}`}
+                                        onChange={() => onUpdateAnswer(index, 'isCorrect', true)}
+                                        type="radio"
+                                    />
+                                    <span>Đúng</span>
+                                </label>
+                                <button
+                                    className="ghost-button icon-only"
+                                    disabled={saving || draft.answers.length <= 2}
+                                    onClick={() => onRemoveAnswer(index)}
+                                    type="button"
+                                >
+                                    Xóa
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="modal-actions question-edit-actions">
+                    <button className="ghost-button" onClick={onAddAnswer} type="button">
+                        Thêm đáp án
+                    </button>
+                    <span className="question-edit-spacer" />
+                    <button className="ghost-button" disabled={saving} onClick={onCancel} type="button">
+                        Hủy
+                    </button>
+                    <button className="primary-button" disabled={saving} type="submit">
+                        {saving ? 'Đang lưu...' : 'Lưu'}
+                    </button>
+                </div>
+            </form>
         </div>
     )
 }

@@ -1448,6 +1448,11 @@ textarea:focus {
     padding: 0 12px;
 }
 
+.compact-button {
+    min-height: 34px;
+    padding: 0 12px;
+}
+
 .answer-review {
     display: grid;
     gap: 8px;
@@ -2184,6 +2189,27 @@ textarea:focus {
     max-width: 480px;
     padding: 24px;
     width: 100%;
+}
+
+.question-edit-modal {
+    max-height: min(90vh, 760px);
+    max-width: 760px;
+    overflow: auto;
+}
+
+.question-edit-form {
+    display: grid;
+    gap: 16px;
+}
+
+.question-edit-actions {
+    align-items: center;
+    flex-wrap: wrap;
+    margin-top: 20px;
+}
+
+.question-edit-spacer {
+    flex: 1;
 }
 
 .modal-card h2 {

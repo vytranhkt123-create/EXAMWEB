@@ -10,16 +10,18 @@ namespace ExamWeb.Domain.Entity.Questions
         public string TestId { get; private set; } = string.Empty;
         public string Content { get; private set; } = string.Empty;
         public decimal Score { get; private set; }
+        public int OrderIndex { get; private set; }
 
         private readonly List<Answer> _answers = new();
         public IReadOnlyCollection<Answer> Answers => _answers.AsReadOnly();
 
-        public Question(string testId, string content, decimal score)
+        public Question(string testId, string content, decimal score, int orderIndex = 0)
         {
             Id = "Question_" + Guid.NewGuid().ToString("N");
             ChangeTestId(testId);
             ChangeContent(content);
             ChangeScore(score);
+            UpdateOrderIndex(orderIndex);
         }
         public void ChangeTestId(string testId)
         {
@@ -36,9 +38,21 @@ namespace ExamWeb.Domain.Entity.Questions
             if (score < 0) throw new DomainException("Điểm số câu hỏi không được nhỏ hơn 0");
             Score = score;
         }
+        public void UpdateOrderIndex(int index)
+        {
+            if (index < 0) throw new DomainException("Thứ tự câu hỏi không được nhỏ hơn 0");
+            OrderIndex = index;
+        }
         public void AddAnswer(string content, bool isCorrect)
         {
-            _answers.Add(new Answer(Id, content, isCorrect));
+            var orderIndex = _answers.Count == 0
+                ? 0
+                : _answers.Max(x => x.OrderIndex) + 1;
+            AddAnswer(content, isCorrect, orderIndex);
+        }
+        public void AddAnswer(string content, bool isCorrect, int orderIndex)
+        {
+            _answers.Add(new Answer(Id, content, isCorrect, orderIndex));
         }
         public void DeleteAnswer(string answerId)
         {

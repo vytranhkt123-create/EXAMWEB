@@ -45,7 +45,14 @@ namespace ExamWeb.Domain.Entity.Tests
         }
         public Question AddQuestion(string content, decimal score)
         {
-            var question = new Question(Id, content, score);
+            var orderIndex = _questions.Count == 0
+                ? 0
+                : _questions.Max(x => x.OrderIndex) + 1;
+            return AddQuestion(content, score, orderIndex);
+        }
+        public Question AddQuestion(string content, decimal score, int orderIndex)
+        {
+            var question = new Question(Id, content, score, orderIndex);
             _questions.Add(question);
             ChangeScoreTotal();
             ChangeQuestionCount();

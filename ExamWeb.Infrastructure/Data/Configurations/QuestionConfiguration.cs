@@ -13,6 +13,7 @@ namespace ExamWeb.Infrastructure.Data.Configurations
             builder.Property(x => x.TestId).IsRequired();
             builder.Property(x => x.Content).IsRequired().HasMaxLength(1000);
             builder.Property(x => x.Score).HasPrecision(10, 2).IsRequired();
+            builder.Property(x => x.OrderIndex).IsRequired();
 
             builder.HasMany(x => x.Answers)
                 .WithOne()

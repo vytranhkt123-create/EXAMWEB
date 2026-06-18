@@ -186,7 +186,10 @@ namespace ExamWeb.Infrastructure.Services
                 return null;
             }
 
-            var question = test.AddQuestion(request.Content, request.Score);
+            var questionOrderIndex = test.Questions.Count == 0
+                ? 0
+                : test.Questions.Max(x => x.OrderIndex) + 1;
+            var question = test.AddQuestion(request.Content, request.Score, questionOrderIndex);
             AddAnswers(question, request.Answers ?? new List<SaveAnswerRequest>());
             await _dbContext.SaveChangesAsync(cancellationToken);
             return MapQuestion(question);
@@ -274,7 +277,7 @@ namespace ExamWeb.Infrastructure.Services
                 IsTimeExpired = request.IsTimeExpired
             };
 
-            foreach (var question in test.Questions)
+            foreach (var question in test.Questions.OrderBy(x => x.OrderIndex))
             {
                 selectedAnswerByQuestion.TryGetValue(question.Id, out var selectedAnswerId);
                 var selectedAnswer = question.Answers.FirstOrDefault(x => x.Id == selectedAnswerId);
@@ -468,9 +471,11 @@ namespace ExamWeb.Infrastructure.Services
 
         private static void AddAnswers(Question question, IEnumerable<SaveAnswerRequest> answers)
         {
-            foreach (var answer in answers)
+            var answerList = answers.ToList();
+            for (var index = 0; index < answerList.Count; index++)
             {
-                question.AddAnswer(answer.Content, answer.IsCorrect);
+                var answer = answerList[index];
+                question.AddAnswer(answer.Content, answer.IsCorrect, index);
             }
         }
 
@@ -517,7 +522,7 @@ namespace ExamWeb.Infrastructure.Services
                 CreatedAt = test.CreatedAt,
                 AssignedStudentIds = assignedStudentIds.ToList(),
                 Questions = test.Questions
-                    .OrderBy(x => x.Id)
+                    .OrderBy(x => x.OrderIndex)
                     .Select(MapQuestion)
                     .ToList()
             };
@@ -531,7 +536,7 @@ namespace ExamWeb.Infrastructure.Services
                 Content = question.Content,
                 Score = question.Score,
                 Answers = question.Answers
-                    .OrderBy(x => x.Id)
+                    .OrderBy(x => x.OrderIndex)
                     .Select(MapAnswer)
                     .ToList()
             };
@@ -557,14 +562,14 @@ namespace ExamWeb.Infrastructure.Services
                 QuestionCount = test.QuestionCount,
                 ScoreTotal = test.ScoreTotal,
                 Questions = test.Questions
-                    .OrderBy(x => x.Id)
+                    .OrderBy(x => x.OrderIndex)
                     .Select(x => new QuestionTakeDto
                     {
                         Id = x.Id,
                         Content = x.Content,
                         Score = x.Score,
                         Answers = x.Answers
-                            .OrderBy(a => a.Id)
+                            .OrderBy(a => a.OrderIndex)
                             .Select(a => new AnswerOptionDto
                             {
                                 Id = a.Id,

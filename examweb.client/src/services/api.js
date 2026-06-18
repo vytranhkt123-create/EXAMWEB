@@ -101,6 +101,13 @@ export function api(path = '', options = {}) {
     return requestJson(buildApiUrl(`/api/tests${path}`), withAuthHeaders(options))
 }
 
+export function updateTestQuestion(testId, questionId, payload) {
+    return api(`/${encodeURIComponent(testId)}/questions/${encodeURIComponent(questionId)}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+    })
+}
+
 export function studentsApi(path = '', options = {}) {
     return requestJson(buildApiUrl(`/api/students${path}`), withAuthHeaders(options))
 }

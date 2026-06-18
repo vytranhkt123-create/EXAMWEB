@@ -13,6 +13,7 @@ namespace ExamWeb.Infrastructure.Data.Configurations
             builder.Property(x => x.QuestionId).IsRequired();
             builder.Property(x => x.Content).IsRequired().HasMaxLength(600);
             builder.Property(x => x.IsCorrect).IsRequired();
+            builder.Property(x => x.OrderIndex).IsRequired();
         }
     }
 }
