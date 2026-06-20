@@ -41,6 +41,16 @@ namespace ExamWeb.Application.DTO.Tests
         public List<QuestionTakeDto> Questions { get; set; } = new();
     }
 
+    public class TestPracticeDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string TestName { get; set; } = string.Empty;
+        public int DurationMinutes { get; set; }
+        public int QuestionCount { get; set; }
+        public decimal ScoreTotal { get; set; }
+        public List<QuestionPracticeDto> Questions { get; set; } = new();
+    }
+
     public class QuestionTakeDto
     {
         public string Id { get; set; } = string.Empty;
@@ -49,10 +59,23 @@ namespace ExamWeb.Application.DTO.Tests
         public List<AnswerOptionDto> Answers { get; set; } = new();
     }
 
+    public class QuestionPracticeDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Content { get; set; } = string.Empty;
+        public decimal Score { get; set; }
+        public List<PracticeAnswerOptionDto> Answers { get; set; } = new();
+    }
+
     public class AnswerOptionDto
     {
         public string Id { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
+    }
+
+    public class PracticeAnswerOptionDto : AnswerOptionDto
+    {
+        public bool IsCorrect { get; set; }
     }
 
     public class SubmitTestResponse

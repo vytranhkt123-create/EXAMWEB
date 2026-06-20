@@ -9,6 +9,7 @@ namespace ExamWeb.Application.IService
         Task<IReadOnlyList<ScreenMonitorSessionDto>> GetScreenMonitorSessionsAsync(string testId, CancellationToken cancellationToken = default);
         Task<TestDetailDto?> GetTestAsync(string testId, CancellationToken cancellationToken = default);
         Task<TestTakeDto?> GetTestForTakingAsync(string testId, CancellationToken cancellationToken = default);
+        Task<TestPracticeDto?> GetTestForPracticeAsync(string testId, CancellationToken cancellationToken = default);
         Task<TestDetailDto> CreateTestAsync(CreateTestRequest request, CancellationToken cancellationToken = default);
         Task<TestDetailDto?> UpdateTestAsync(string testId, UpdateTestRequest request, CancellationToken cancellationToken = default);
         Task<bool> DeleteTestAsync(string testId, CancellationToken cancellationToken = default);

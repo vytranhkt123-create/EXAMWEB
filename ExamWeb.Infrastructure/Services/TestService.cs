@@ -132,6 +132,17 @@ namespace ExamWeb.Infrastructure.Services
             return test == null ? null : MapTake(test);
         }
 
+        public async Task<TestPracticeDto?> GetTestForPracticeAsync(string testId, CancellationToken cancellationToken = default)
+        {
+            if (!await HasStudentAccessAsync(testId, cancellationToken))
+            {
+                throw new DomainException("Bạn không được phép luyện tập đề thi này");
+            }
+
+            var test = await LoadTestAsync(testId, true, cancellationToken);
+            return test == null ? null : MapPractice(test);
+        }
+
         public async Task<TestDetailDto> CreateTestAsync(CreateTestRequest request, CancellationToken cancellationToken = default)
         {
             var test = new Test(request.TestName, request.DurationMinutes);
@@ -574,6 +585,36 @@ namespace ExamWeb.Infrastructure.Services
                             {
                                 Id = a.Id,
                                 Content = a.Content
+                            })
+                            .ToList()
+                    })
+                    .ToList()
+            };
+        }
+
+        private static TestPracticeDto MapPractice(Test test)
+        {
+            return new TestPracticeDto
+            {
+                Id = test.Id,
+                TestName = test.TestName,
+                DurationMinutes = test.DurationMinutes,
+                QuestionCount = test.QuestionCount,
+                ScoreTotal = test.ScoreTotal,
+                Questions = test.Questions
+                    .OrderBy(x => x.OrderIndex)
+                    .Select(x => new QuestionPracticeDto
+                    {
+                        Id = x.Id,
+                        Content = x.Content,
+                        Score = x.Score,
+                        Answers = x.Answers
+                            .OrderBy(a => a.OrderIndex)
+                            .Select(a => new PracticeAnswerOptionDto
+                            {
+                                Id = a.Id,
+                                Content = a.Content,
+                                IsCorrect = a.IsCorrect
                             })
                             .ToList()
                     })

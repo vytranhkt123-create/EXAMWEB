@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ExamFullscreenView } from './components/ExamFullscreenView'
 import { LoginView } from './components/LoginView'
+import { PracticeMode } from './components/PracticeMode'
+import { TestModeDialog } from './components/TestModeDialog'
 import { AdminSchedulePanel } from './components/schedule/AdminSchedulePanel'
 import { StudentSchedulePanel } from './components/schedule/StudentSchedulePanel'
 import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConfig'
@@ -188,6 +190,7 @@ function App() {
     const [newTestAssignedStudentIds, setNewTestAssignedStudentIds] = useState([])
     const [newStudent, setNewStudent] = useState(initialNewStudent)
     const [studentTest, setStudentTest] = useState(null)
+    const [studentTestMode, setStudentTestMode] = useState(null)
     const [adminTest, setAdminTest] = useState(null)
     const [attemptHistory, setAttemptHistory] = useState([])
     const [screenMonitorSessions, setScreenMonitorSessions] = useState([])
@@ -203,6 +206,7 @@ function App() {
     const [adminSection, setAdminSection] = useState('dashboard')
     const [adminTestTab, setAdminTestTab] = useState('settings')
     const [pendingTestId, setPendingTestId] = useState(null)
+    const [showModeDialog, setShowModeDialog] = useState(false)
     const [showMonitorDialog, setShowMonitorDialog] = useState(false)
     const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
     const [fullscreenWarning, setFullscreenWarning] = useState('')
@@ -246,7 +250,7 @@ function App() {
         onError: (err) => setError(err.message),
         onWarning: setFullscreenWarning,
         result: submitResult,
-        studentTest,
+        studentTest: studentTestMode === 'exam' ? studentTest : null,
     })
 
     const toggleTheme = useCallback(() => {
@@ -254,11 +258,11 @@ function App() {
     }, [])
 
     const answeredCount = useMemo(() => {
-        if (!studentTest) return 0
+        if (!studentTest || studentTestMode !== 'exam') return 0
         return studentTest.questions.filter((question) => selectedAnswers[question.id]).length
-    }, [selectedAnswers, studentTest])
+    }, [selectedAnswers, studentTest, studentTestMode])
 
-    const isExamRunning = Boolean(studentTest && !submitResult && studentTest.questions.length > 0)
+    const isExamRunning = Boolean(studentTestMode === 'exam' && studentTest && !submitResult && studentTest.questions.length > 0)
     const isExamLocked = Boolean(submitResult || (isExamRunning && (monitoringStatus !== 'active' || !isFullscreen)))
 
     const handleAuthFailure = useCallback((err) => {
@@ -352,11 +356,11 @@ function App() {
     }, [loadChatMessages, loadMaterials, loadOnlineClass, loadWhiteboardSnapshots])
 
     const reportExamViolation = useCallback((eventType, message, warning) => {
-        if (!studentTest || !monitoringSessionId || submitResult || submittingRef.current) return
+        if (studentTestMode !== 'exam' || !studentTest || !monitoringSessionId || submitResult || submittingRef.current) return
 
         setFullscreenWarning(warning)
         recordScreenMonitorEvent(studentTest.id, monitoringSessionId, eventType, message)
-    }, [monitoringSessionId, recordScreenMonitorEvent, submitResult, studentTest])
+    }, [monitoringSessionId, recordScreenMonitorEvent, studentTestMode, submitResult, studentTest])
 
     const submitTest = useCallback(async ({ allowIncomplete = false, isTimeExpired = false } = {}) => {
         if (!studentTest || submittingRef.current || submitResult) return
@@ -405,7 +409,7 @@ function App() {
             const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement)
             setIsFullscreen(active)
 
-            if (!active && studentTest && !submitResult && !submittingRef.current) {
+            if (!active && studentTestMode === 'exam' && studentTest && !submitResult && !submittingRef.current) {
                 reportExamViolation(
                     'FullscreenExited',
                     'Học sinh thoát chế độ toàn màn hình',
@@ -422,10 +426,10 @@ function App() {
             document.removeEventListener('fullscreenchange', onFullscreenChange)
             document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
         }
-    }, [reportExamViolation, submitResult, studentTest])
+    }, [reportExamViolation, studentTestMode, submitResult, studentTest])
 
     useEffect(() => {
-        if (!studentTest || submitResult || studentTest.questions.length === 0) return undefined
+        if (studentTestMode !== 'exam' || !studentTest || submitResult || studentTest.questions.length === 0) return undefined
 
         const timer = window.setTimeout(() => {
             if (examShellRef.current) {
@@ -436,7 +440,7 @@ function App() {
         }, 120)
 
         return () => window.clearTimeout(timer)
-    }, [submitResult, studentTest])
+    }, [studentTestMode, submitResult, studentTest])
 
     useEffect(() => {
         document.title = APP_NAME
@@ -484,7 +488,7 @@ function App() {
     }, [auth, loadOnlineClassData, loadStudents, loadTests])
 
     useEffect(() => {
-        if (!studentTest || submitResult || studentTest.questions.length === 0 || timeLeft === null) return undefined
+        if (studentTestMode !== 'exam' || !studentTest || submitResult || studentTest.questions.length === 0 || timeLeft === null) return undefined
 
         if (timeLeft <= 0) {
             const submitTimer = window.setTimeout(() => {
@@ -498,7 +502,7 @@ function App() {
         }, 1000)
 
         return () => window.clearTimeout(timer)
-    }, [submitResult, studentTest, submitTest, timeLeft])
+    }, [studentTestMode, submitResult, studentTest, submitTest, timeLeft])
 
     async function handleLogin(event, credentials) {
         event.preventDefault()
@@ -594,6 +598,8 @@ function App() {
         setLoading(true)
         submittingRef.current = false
         setFullscreenWarning('')
+        setShowModeDialog(false)
+        setShowMonitorDialog(false)
 
         try {
             const testId = forcedTestId
@@ -601,12 +607,15 @@ function App() {
             await startScreenMonitoring(testId)
             const data = await api(`/${testId}/take`)
             setStudentTest(data)
+            setStudentTestMode('exam')
             setStartedAt(new Date())
             setTimeLeft((data.durationMinutes || 30) * 60)
+            setShowModeDialog(false)
             setShowMonitorDialog(false)
             setPendingTestId(null)
         } catch (err) {
             stopScreenStream()
+            setStudentTestMode(null)
             if (err?.name === 'NotAllowedError') {
                 setError('Cần bật toàn màn hình và chia sẻ màn hình để bắt đầu làm bài')
             } else if (!handleAuthFailure(err)) {
@@ -617,16 +626,49 @@ function App() {
         }
     }
 
+    async function startPracticeMode(forcedTestId = pendingTestId) {
+        if (!forcedTestId) return
+
+        setError('')
+        setSubmitResult(null)
+        setSelectedAnswers({})
+        setLoading(true)
+        submittingRef.current = false
+        setFullscreenWarning('')
+        setShowModeDialog(false)
+        setShowMonitorDialog(false)
+
+        try {
+            const testId = forcedTestId
+            const data = await api(`/${testId}/practice`)
+            setStudentTest(data)
+            setStudentTestMode('practice')
+            setStartedAt(null)
+            setTimeLeft(null)
+            setShowModeDialog(false)
+            setShowMonitorDialog(false)
+            setPendingTestId(null)
+        } catch (err) {
+            setStudentTestMode(null)
+            if (!handleAuthFailure(err)) {
+                setError(err.message)
+            }
+        } finally {
+            setLoading(false)
+        }
+    }
+
     async function requestOpenStudentTest(testId) {
-        if (isExamRunning) return
+        if (studentTest) return
         setPendingTestId(testId)
+        setShowModeDialog(true)
         setShowMonitorDialog(false)
         setError('')
-        await confirmStartExam(testId)
     }
 
     function cancelStartExam() {
         setPendingTestId(null)
+        setShowModeDialog(false)
         setShowMonitorDialog(false)
     }
 
@@ -1260,11 +1302,13 @@ function App() {
         stopScreenStream()
         exitExamFullscreen()
         setStudentTest(null)
+        setStudentTestMode(null)
         setSelectedAnswers({})
         setSubmitResult(null)
         setStartedAt(null)
         setTimeLeft(null)
         setPendingTestId(null)
+        setShowModeDialog(false)
         setShowMonitorDialog(false)
         setShowSubmitConfirm(false)
         setFullscreenWarning('')
@@ -1432,31 +1476,40 @@ function App() {
             {error && !studentTest && <div className="alert">{error}</div>}
 
             {studentTest ? (
-                <ExamFullscreenView
-                    answeredCount={answeredCount}
-                    auth={auth}
-                    error={error}
-                    examShellRef={examShellRef}
-                    formatDuration={formatDuration}
-                    formatLongDuration={formatLongDuration}
-                    formatScore={formatScore}
-                    fullscreenWarning={fullscreenWarning}
-                    isExamLocked={isExamLocked}
-                    isExamRunning={isExamRunning}
-                    isFullscreen={isFullscreen}
-                    monitoringMessage={monitoringMessage}
-                    monitoringStatus={monitoringStatus}
-                    onReenterFullscreen={() => enterExamFullscreen(examShellRef.current)}
-                    onReset={resetStudentWork}
-                    onRestartScreenShare={restartScreenMonitoring}
-                    onSelectAnswer={selectAnswer}
-                    onSubmit={handleSubmitClick}
-                    submitResult={submitResult}
-                    saving={saving}
-                    selectedAnswers={selectedAnswers}
-                    studentTest={studentTest}
-                    timeLeft={timeLeft}
-                />
+                studentTestMode === 'practice' ? (
+                    <PracticeMode
+                        auth={auth}
+                        formatScore={formatScore}
+                        onReset={resetStudentWork}
+                        studentTest={studentTest}
+                    />
+                ) : (
+                    <ExamFullscreenView
+                        answeredCount={answeredCount}
+                        auth={auth}
+                        error={error}
+                        examShellRef={examShellRef}
+                        formatDuration={formatDuration}
+                        formatLongDuration={formatLongDuration}
+                        formatScore={formatScore}
+                        fullscreenWarning={fullscreenWarning}
+                        isExamLocked={isExamLocked}
+                        isExamRunning={isExamRunning}
+                        isFullscreen={isFullscreen}
+                        monitoringMessage={monitoringMessage}
+                        monitoringStatus={monitoringStatus}
+                        onReenterFullscreen={() => enterExamFullscreen(examShellRef.current)}
+                        onReset={resetStudentWork}
+                        onRestartScreenShare={restartScreenMonitoring}
+                        onSelectAnswer={selectAnswer}
+                        onSubmit={handleSubmitClick}
+                        submitResult={submitResult}
+                        saving={saving}
+                        selectedAnswers={selectedAnswers}
+                        studentTest={studentTest}
+                        timeLeft={timeLeft}
+                    />
+                )
             ) : (
                 <StudentView
                     auth={auth}
@@ -1474,11 +1527,21 @@ function App() {
                 />
             )}
 
+            {showModeDialog && (
+                <TestModeDialog
+                    loading={loading}
+                    onCancel={cancelStartExam}
+                    onSelectExam={() => confirmStartExam()}
+                    onSelectPractice={() => startPracticeMode()}
+                    testName={pendingTest?.testName}
+                />
+            )}
+
             {showMonitorDialog && (
                 <ScreenMonitorConsentDialog
                     loading={loading}
                     onCancel={cancelStartExam}
-                    onConfirm={confirmStartExam}
+                    onConfirm={() => confirmStartExam()}
                     testName={pendingTest?.testName}
                 />
             )}

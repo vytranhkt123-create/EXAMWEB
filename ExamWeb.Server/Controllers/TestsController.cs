@@ -79,6 +79,21 @@ namespace ExamWeb.Server.Controllers
             }
         }
 
+        [Authorize(Roles = "User")]
+        [HttpGet("{testId}/practice")]
+        public async Task<ActionResult<TestPracticeDto>> GetTestForPractice(string testId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var test = await _testService.GetTestForPracticeAsync(testId, cancellationToken);
+                return test == null ? NotFound() : Ok(test);
+            }
+            catch (DomainException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+            }
+        }
+
         [Authorize(Roles = "Admin")]
         [HttpPost]
         public async Task<ActionResult<TestDetailDto>> CreateTest(CreateTestRequest request, CancellationToken cancellationToken)
