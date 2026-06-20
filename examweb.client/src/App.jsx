@@ -192,7 +192,7 @@ function App() {
     const [attemptHistory, setAttemptHistory] = useState([])
     const [screenMonitorSessions, setScreenMonitorSessions] = useState([])
     const [selectedAnswers, setSelectedAnswers] = useState({})
-    const [result, setResult] = useState(null)
+    const [submitResult, setSubmitResult] = useState(null)
     const [startedAt, setStartedAt] = useState(null)
     const [timeLeft, setTimeLeft] = useState(null)
     const [newTestName, setNewTestName] = useState('')
@@ -245,7 +245,7 @@ function App() {
         mode,
         onError: (err) => setError(err.message),
         onWarning: setFullscreenWarning,
-        result,
+        result: submitResult,
         studentTest,
     })
 
@@ -258,8 +258,8 @@ function App() {
         return studentTest.questions.filter((question) => selectedAnswers[question.id]).length
     }, [selectedAnswers, studentTest])
 
-    const isExamRunning = Boolean(studentTest && !result && studentTest.questions.length > 0)
-    const isExamLocked = Boolean(result || (isExamRunning && (monitoringStatus !== 'active' || !isFullscreen)))
+    const isExamRunning = Boolean(studentTest && !submitResult && studentTest.questions.length > 0)
+    const isExamLocked = Boolean(submitResult || (isExamRunning && (monitoringStatus !== 'active' || !isFullscreen)))
 
     const handleAuthFailure = useCallback((err) => {
         if (err?.status === 401) {
@@ -352,14 +352,14 @@ function App() {
     }, [loadChatMessages, loadMaterials, loadOnlineClass, loadWhiteboardSnapshots])
 
     const reportExamViolation = useCallback((eventType, message, warning) => {
-        if (!studentTest || !monitoringSessionId || result || submittingRef.current) return
+        if (!studentTest || !monitoringSessionId || submitResult || submittingRef.current) return
 
         setFullscreenWarning(warning)
         recordScreenMonitorEvent(studentTest.id, monitoringSessionId, eventType, message)
-    }, [monitoringSessionId, recordScreenMonitorEvent, result, studentTest])
+    }, [monitoringSessionId, recordScreenMonitorEvent, submitResult, studentTest])
 
     const submitTest = useCallback(async ({ allowIncomplete = false, isTimeExpired = false } = {}) => {
-        if (!studentTest || submittingRef.current || result) return
+        if (!studentTest || submittingRef.current || submitResult) return
 
         if (!allowIncomplete && answeredCount !== studentTest.questions.length) {
             setError('Hãy chọn đáp án cho tất cả câu hỏi trước khi nộp bài')
@@ -387,7 +387,8 @@ function App() {
                     })),
                 }),
             })
-            setResult(data)
+            // Lưu response nộp bài để chuyển sang giao diện xem kết quả.
+            setSubmitResult(data)
             setTimeLeft(0)
             setShowSubmitConfirm(false)
             await exitExamFullscreen()
@@ -397,14 +398,14 @@ function App() {
         } finally {
             setSaving(false)
         }
-    }, [answeredCount, monitoringSessionId, result, selectedAnswers, startedAt, studentTest])
+    }, [answeredCount, monitoringSessionId, selectedAnswers, startedAt, studentTest, submitResult])
 
     useEffect(() => {
         const onFullscreenChange = () => {
             const active = Boolean(document.fullscreenElement || document.webkitFullscreenElement)
             setIsFullscreen(active)
 
-            if (!active && studentTest && !result && !submittingRef.current) {
+            if (!active && studentTest && !submitResult && !submittingRef.current) {
                 reportExamViolation(
                     'FullscreenExited',
                     'Học sinh thoát chế độ toàn màn hình',
@@ -421,10 +422,10 @@ function App() {
             document.removeEventListener('fullscreenchange', onFullscreenChange)
             document.removeEventListener('webkitfullscreenchange', onFullscreenChange)
         }
-    }, [reportExamViolation, result, studentTest])
+    }, [reportExamViolation, submitResult, studentTest])
 
     useEffect(() => {
-        if (!studentTest || result || studentTest.questions.length === 0) return undefined
+        if (!studentTest || submitResult || studentTest.questions.length === 0) return undefined
 
         const timer = window.setTimeout(() => {
             if (examShellRef.current) {
@@ -435,7 +436,7 @@ function App() {
         }, 120)
 
         return () => window.clearTimeout(timer)
-    }, [result, studentTest])
+    }, [submitResult, studentTest])
 
     useEffect(() => {
         document.title = APP_NAME
@@ -483,7 +484,7 @@ function App() {
     }, [auth, loadOnlineClassData, loadStudents, loadTests])
 
     useEffect(() => {
-        if (!studentTest || result || studentTest.questions.length === 0 || timeLeft === null) return undefined
+        if (!studentTest || submitResult || studentTest.questions.length === 0 || timeLeft === null) return undefined
 
         if (timeLeft <= 0) {
             const submitTimer = window.setTimeout(() => {
@@ -497,7 +498,7 @@ function App() {
         }, 1000)
 
         return () => window.clearTimeout(timer)
-    }, [result, studentTest, submitTest, timeLeft])
+    }, [submitResult, studentTest, submitTest, timeLeft])
 
     async function handleLogin(event, credentials) {
         event.preventDefault()
@@ -588,7 +589,7 @@ function App() {
         if (!forcedTestId) return
 
         setError('')
-        setResult(null)
+        setSubmitResult(null)
         setSelectedAnswers({})
         setLoading(true)
         submittingRef.current = false
@@ -1260,7 +1261,7 @@ function App() {
         exitExamFullscreen()
         setStudentTest(null)
         setSelectedAnswers({})
-        setResult(null)
+        setSubmitResult(null)
         setStartedAt(null)
         setTimeLeft(null)
         setPendingTestId(null)
@@ -1450,7 +1451,7 @@ function App() {
                     onRestartScreenShare={restartScreenMonitoring}
                     onSelectAnswer={selectAnswer}
                     onSubmit={handleSubmitClick}
-                    result={result}
+                    submitResult={submitResult}
                     saving={saving}
                     selectedAnswers={selectedAnswers}
                     studentTest={studentTest}

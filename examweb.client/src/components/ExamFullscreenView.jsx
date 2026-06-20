@@ -6,7 +6,6 @@ export function ExamFullscreenView({
     error,
     examShellRef,
     formatDuration,
-    formatLongDuration,
     formatScore,
     fullscreenWarning,
     isExamLocked,
@@ -18,7 +17,7 @@ export function ExamFullscreenView({
     onReset,
     onSelectAnswer,
     onSubmit,
-    result,
+    submitResult,
     saving,
     selectedAnswers,
     studentTest,
@@ -34,8 +33,8 @@ export function ExamFullscreenView({
                 </div>
                 <div className="exam-fullscreen-meta">
                     <span className={`monitor-pill ${monitoringStatus}`}>{getMonitorStatusText(monitoringStatus)}</span>
-                    <span className={`timer-pill ${timeLeft !== null && timeLeft <= 60 && !result ? 'danger' : ''}`}>
-                        {result ? 'Đã nộp bài' : formatDuration(timeLeft)}
+                    <span className={`timer-pill ${timeLeft !== null && timeLeft <= 60 && !submitResult ? 'danger' : ''}`}>
+                        {submitResult ? 'Đã nộp bài' : formatDuration(timeLeft)}
                     </span>
                     {!isFullscreen && isExamRunning && (
                         <button className="ghost-button" onClick={onReenterFullscreen} type="button">
@@ -70,7 +69,15 @@ export function ExamFullscreenView({
             )}
 
             <main className="exam-fullscreen-body">
-                {studentTest.questions.length === 0 ? (
+                {/* Bước 3: có submitResult thì ẩn giao diện làm bài và chỉ hiển thị kết quả. */}
+                {submitResult ? (
+                    <TestResultView
+                        formatDuration={formatDuration}
+                        formatScore={formatScore}
+                        result={submitResult}
+                        studentTest={studentTest}
+                    />
+                ) : studentTest.questions.length === 0 ? (
                     <div className="empty-state">
                         <div className="empty-icon" aria-hidden="true">!</div>
                         <h2>Đề chưa có câu hỏi</h2>
@@ -106,48 +113,145 @@ export function ExamFullscreenView({
                         ))}
                     </div>
                 )}
-
-                {result && (
-                    <div className="result-panel">
-                        <div className="result-score-info">
-                            <p className="eyebrow">Kết quả</p>
-                            <strong>
-                                {formatScore(result.score)} / {formatScore(result.scoreTotal)} điểm
-                            </strong>
-                            <span>
-                                Đúng {result.correctCount}/{result.questionCount} câu · {formatLongDuration(result.durationSeconds)}
-                            </span>
-                        </div>
-                        <span className={result.isTimeExpired ? 'result-badge warning' : 'result-badge'}>
-                            {result.isTimeExpired ? 'Tự nộp khi hết giờ' : 'Đã nộp bài'}
-                        </span>
-                    </div>
-                )}
             </main>
 
             <footer className="exam-fullscreen-footer">
                 <div className="progress-text">
-                    Đã chọn <strong>{answeredCount}</strong> / {studentTest.questions.length} câu
+                    {submitResult ? (
+                        <>
+                            Đã nộp <strong>{submitResult.correctCount}</strong> / {submitResult.questionCount} câu đúng
+                        </>
+                    ) : (
+                        <>
+                            Đã chọn <strong>{answeredCount}</strong> / {studentTest.questions.length} câu
+                        </>
+                    )}
                     {monitoringMessage && <span className="monitor-note"> · {monitoringMessage}</span>}
                 </div>
                 <div className="button-row">
-                    {(result || isExamRunning) && (
+                    {(submitResult || isExamRunning) && (
                         <button className="ghost-button" onClick={onReset} type="button">
-                            {result ? 'Về danh sách đề' : 'Thoát bài'}
+                            {submitResult ? 'Về danh sách đề' : 'Thoát bài'}
                         </button>
                     )}
-                    <button
-                        className="primary-button"
-                        disabled={saving || isExamLocked || studentTest.questions.length === 0}
-                        onClick={onSubmit}
-                        type="button"
-                    >
-                        Nộp bài
-                    </button>
+                    {!submitResult && (
+                        <button
+                            className="primary-button"
+                            disabled={saving || isExamLocked || studentTest.questions.length === 0}
+                            onClick={onSubmit}
+                            type="button"
+                        >
+                            Nộp bài
+                        </button>
+                    )}
                 </div>
             </footer>
         </div>
     )
+}
+
+function TestResultView({ formatDuration, formatScore, result, studentTest }) {
+    const questionsById = new Map((studentTest.questions || []).map((question) => [question.id, question]))
+    const detailedResults = result.results || []
+
+    return (
+        <section className="test-result-view">
+            <div className="result-panel result-panel-full">
+                <div className="result-score-info">
+                    <p className="eyebrow">Kết quả thi</p>
+                    <h2>Nộp bài thành công</h2>
+                    <strong>
+                        {formatScore(result.score)} / {formatScore(result.scoreTotal)} điểm
+                    </strong>
+                    <span>{result.studentName || studentTest.studentName}</span>
+                </div>
+                <div className="result-summary-grid">
+                    <div className="result-summary-item">
+                        <span>Số câu đúng</span>
+                        <strong>{result.correctCount}/{result.questionCount}</strong>
+                    </div>
+                    <div className="result-summary-item">
+                        <span>Thời gian</span>
+                        <strong>{formatDuration(result.durationSeconds)}</strong>
+                    </div>
+                    <div className="result-summary-item">
+                        <span>Trạng thái</span>
+                        <strong>{result.isTimeExpired ? 'Tự nộp khi hết giờ' : 'Đã nộp bài'}</strong>
+                    </div>
+                </div>
+            </div>
+
+            <div className="result-review-head">
+                <div>
+                    <p className="eyebrow">Review chi tiết</p>
+                    <h3>Đáp án từng câu</h3>
+                </div>
+                <span className={result.isTimeExpired ? 'result-badge warning' : 'result-badge'}>
+                    {result.isTimeExpired ? 'Hết giờ' : 'Hoàn tất'}
+                </span>
+            </div>
+
+            <div className="question-stack">
+                {detailedResults.map((item, index) => {
+                    // Bước 4: ghép kết quả backend với câu hỏi gốc để lấy lại danh sách đáp án.
+                    const question = questionsById.get(item.questionId)
+                    const answers = question?.answers || []
+
+                    return (
+                        <article className={`question-block review-question ${item.isCorrect ? 'correct' : 'incorrect'}`} key={item.questionId}>
+                            <div className="question-head review-question-head">
+                                <div>
+                                    <h3>Câu {index + 1}</h3>
+                                    <p className="question-content">{item.questionContent || question?.content}</p>
+                                </div>
+                                <div className="review-score">
+                                    <span>Điểm đạt</span>
+                                    <strong>{formatScore(item.scoreEarned)}</strong>
+                                </div>
+                            </div>
+
+                            {answers.length === 0 ? (
+                                <div className="empty-list">Không tìm thấy danh sách đáp án của câu hỏi này.</div>
+                            ) : (
+                                <div className="answer-grid review-answer-grid">
+                                    {answers.map((answer, answerIndex) => {
+                                        const answerState = getReviewAnswerState(answer.id, item)
+                                        return (
+                                            <div className={`answer-option review-answer ${answerState}`} key={answer.id}>
+                                                <span className="answer-marker">{getAnswerLabel(answerIndex)}</span>
+                                                <span className="answer-text">{answer.content}</span>
+                                                {answer.id === item.selectedAnswerId && (
+                                                    <span className="answer-status">Bạn chọn</span>
+                                                )}
+                                                {answer.id === item.correctAnswerId && (
+                                                    <span className="answer-status correct-label">Đáp án đúng</span>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                            )}
+
+                            {!item.selectedAnswerId && (
+                                <p className="unanswered-note">Bạn chưa chọn đáp án cho câu này.</p>
+                            )}
+                        </article>
+                    )
+                })}
+            </div>
+        </section>
+    )
+}
+
+function getReviewAnswerState(answerId, resultItem) {
+    if (answerId === resultItem.correctAnswerId) return 'correct-answer'
+    if (answerId === resultItem.selectedAnswerId && !resultItem.isCorrect) return 'wrong-answer'
+    if (answerId === resultItem.selectedAnswerId) return 'selected-answer'
+    return ''
+}
+
+function getAnswerLabel(index) {
+    return String.fromCharCode(65 + index)
 }
 
 function getMonitorStatusText(status) {
