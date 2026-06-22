@@ -96,6 +96,11 @@ namespace ExamWeb.Application.DTO.Tests
         public List<SubmitQuestionResultDto> Results { get; set; } = new();
     }
 
+    public class ExplainQuestionResponse
+    {
+        public string Explanation { get; set; } = string.Empty;
+    }
+
     public class SubmitQuestionResultDto
     {
         public string QuestionId { get; set; } = string.Empty;

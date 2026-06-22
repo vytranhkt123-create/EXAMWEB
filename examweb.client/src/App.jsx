@@ -5,6 +5,8 @@ import { PracticeMode } from './components/PracticeMode'
 import { TestModeDialog } from './components/TestModeDialog'
 import { AdminSchedulePanel } from './components/schedule/AdminSchedulePanel'
 import { StudentSchedulePanel } from './components/schedule/StudentSchedulePanel'
+import { TeacherArena } from './components/arena/TeacherArena'
+import { StudentArena } from './components/arena/StudentArena'
 import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConfig'
 import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi, updateTestQuestion } from './services/api'
 import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
@@ -1509,6 +1511,13 @@ function App() {
                         onToggleQuestionMark={toggleQuestionMark}
                         studentTest={studentTest}
                     />
+                ) : studentTestMode === 'arena' ? (
+                    <StudentArena
+                        auth={auth}
+                        onReset={resetStudentWork}
+                        studentTest={studentTest}
+                        arenaRoomId={pendingTestId}
+                    />
                 ) : (
                     <ExamFullscreenView
                         answeredCount={answeredCount}
@@ -1684,6 +1693,23 @@ function StudentView({
                         onSelect={onSelectTest}
                     />
                 </div>
+
+                <div className="panel-section">
+                    <div className="panel-title">
+                        <h2>Đấu trường Real-time</h2>
+                    </div>
+                    <button
+                        className="primary-button full-width"
+                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px' }}
+                        onClick={() => {
+                            setStudentTest({ id: 'arena-placeholder', questions: [] })
+                            setStudentTestMode('arena')
+                        }}
+                        type="button"
+                    >
+                        <span>⚡</span> Tham gia Đấu trường
+                    </button>
+                </div>
             </aside>
 
             <section className="work-panel">
@@ -1849,6 +1875,7 @@ function AdminDashboard({
                             {adminSection === 'documents' && 'Tài liệu PDF'}
                             {adminSection === 'schedule' && 'Thời khóa biểu'}
                             {adminSection === 'online' && 'Lớp học online'}
+                            {adminSection === 'arena' && 'Đấu trường Real-time'}
                             {adminSection === 'test-edit' && (adminTest?.testName || 'Chi tiết đề')}
                         </h1>
                         <p className="subtitle">Bảng điều khiển quản trị lớp học</p>
@@ -1999,6 +2026,16 @@ function AdminDashboard({
                             onUpdateOnlineClass={onUpdateOnlineClass}
                             onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
                             whiteboardSnapshots={whiteboardSnapshots}
+                        />
+                    )}
+
+                    {adminSection === 'arena' && (
+                        <TeacherArena
+                            auth={auth}
+                            loading={loading}
+                            tests={tests}
+                            error={error}
+                            onOpenTest={openAdminTest}
                         />
                     )}
 

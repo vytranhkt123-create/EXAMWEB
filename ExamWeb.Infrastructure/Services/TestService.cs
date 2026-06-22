@@ -15,11 +15,16 @@ namespace ExamWeb.Infrastructure.Services
     {
         private readonly AppDbContext _dbContext;
         private readonly ICurrentUserService _currentUser;
+        private readonly IAiAssistantService _aiAssistantService;
 
-        public TestService(AppDbContext dbContext, ICurrentUserService currentUser)
+        public TestService(
+            AppDbContext dbContext,
+            ICurrentUserService currentUser,
+            IAiAssistantService aiAssistantService)
         {
             _dbContext = dbContext;
             _currentUser = currentUser;
+            _aiAssistantService = aiAssistantService;
         }
 
         public async Task<IReadOnlyList<TestListDto>> GetTestsAsync(CancellationToken cancellationToken = default)
@@ -342,6 +347,68 @@ namespace ExamWeb.Infrastructure.Services
             response.SubmittedAt = attempt.SubmittedAt;
 
             return response;
+        }
+
+        public async Task<string> ExplainQuestionAsync(
+            string testId,
+            string questionId,
+            string selectedAnswerId,
+            CancellationToken cancellationToken = default)
+        {
+            if (!_currentUser.IsStudent || !_currentUser.AccountId.HasValue)
+            {
+                throw new DomainException("Chỉ học sinh mới được sử dụng trợ giảng AI");
+            }
+
+            if (!await HasStudentAccessAsync(testId, cancellationToken))
+            {
+                throw new DomainException("Bạn không được phép luyện tập đề thi này");
+            }
+
+            if (string.IsNullOrWhiteSpace(selectedAnswerId))
+            {
+                throw new DomainException("Cần chọn đáp án trước khi yêu cầu giải thích");
+            }
+
+            var test = await LoadTestAsync(testId, false, cancellationToken);
+            if (test == null)
+            {
+                throw new DomainException("Không tìm thấy đề thi");
+            }
+
+            if (!test.AllowPracticeMode)
+            {
+                throw new DomainException("Đề thi này không cho phép chế độ luyện tập");
+            }
+
+            var question = test.Questions.FirstOrDefault(x => x.Id == questionId);
+            if (question == null)
+            {
+                throw new DomainException("Không tìm thấy câu hỏi");
+            }
+
+            var selectedAnswer = question.Answers.FirstOrDefault(x => x.Id == selectedAnswerId);
+            if (selectedAnswer == null)
+            {
+                throw new DomainException("Đáp án học sinh chọn không hợp lệ");
+            }
+
+            if (selectedAnswer.IsCorrect)
+            {
+                throw new DomainException("Chỉ giải thích khi học sinh chọn sai đáp án");
+            }
+
+            var correctAnswer = question.Answers.FirstOrDefault(x => x.IsCorrect);
+            if (correctAnswer == null)
+            {
+                throw new DomainException("Câu hỏi chưa có đáp án đúng");
+            }
+
+            return await _aiAssistantService.GetExplanationAsync(
+                question.Content,
+                selectedAnswer.Content,
+                correctAnswer.Content,
+                cancellationToken);
         }
 
         public async Task<ScreenMonitorEventDto?> RecordScreenMonitorEventAsync(string testId, ScreenMonitorEventRequest request, CancellationToken cancellationToken = default)

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { APP_NAME } from '../config/appConfig'
+import { explainQuestionWithAI } from '../services/api'
 
 const AUTO_ADVANCE_OPTIONS = [
     { label: 'Không', value: 0 },
@@ -22,6 +23,9 @@ export function PracticeMode({
     const [selectedAnswers, setSelectedAnswers] = useState({})
     const [autoAdvanceDelaySeconds, setAutoAdvanceDelaySeconds] = useState(0)
     const [isFinished, setIsFinished] = useState(false)
+    const [aiExplanation, setAiExplanation] = useState(null)
+    const [isExplaining, setIsExplaining] = useState(false)
+    const [explainError, setExplainError] = useState('')
     const autoAdvanceTimeoutRef = useRef(null)
 
     const clearAutoAdvanceTimeout = useCallback(() => {
@@ -34,6 +38,13 @@ export function PracticeMode({
     useEffect(() => {
         return () => clearAutoAdvanceTimeout()
     }, [clearAutoAdvanceTimeout, studentTest?.id])
+
+    // Bước UX: chuyển câu thì xóa giải thích AI của câu trước.
+    useEffect(() => {
+        setAiExplanation(null)
+        setIsExplaining(false)
+        setExplainError('')
+    }, [currentQuestionIndex])
 
     const currentQuestion = questions[currentQuestionIndex]
     const selectedAnswerId = currentQuestion ? selectedAnswers[currentQuestion.id] : null
@@ -93,6 +104,27 @@ export function PracticeMode({
         }
 
         setCurrentQuestionIndex((current) => current + 1)
+    }
+
+    async function handleExplainWithAI() {
+        if (!currentQuestion || !selectedAnswerId || selectedAnswer?.isCorrect || isExplaining) return
+
+        setIsExplaining(true)
+        setExplainError('')
+        setAiExplanation(null)
+
+        try {
+            const response = await explainQuestionWithAI(
+                studentTest.id,
+                currentQuestion.id,
+                selectedAnswerId,
+            )
+            setAiExplanation(response?.explanation || '')
+        } catch (err) {
+            setExplainError(err.message || 'Không thể lấy giải thích từ AI')
+        } finally {
+            setIsExplaining(false)
+        }
     }
 
     function restartPractice() {
@@ -211,6 +243,40 @@ export function PracticeMode({
                                     ? 'Bạn đã chọn đúng đáp án.'
                                     : 'Đáp án đúng đã được hiển thị màu xanh.'}
                             </span>
+                        </div>
+                    )}
+
+                    {isCurrentQuestionLocked && !selectedAnswer?.isCorrect && (
+                        <div className="ai-explain-section">
+                            <button
+                                className="ai-explain-button"
+                                disabled={isExplaining}
+                                onClick={handleExplainWithAI}
+                                type="button"
+                            >
+                                <span aria-hidden="true">✨</span>
+                                {isExplaining ? 'AI đang suy nghĩ...' : 'Giải thích bằng AI'}
+                            </button>
+
+                            {isExplaining && (
+                                <div className="ai-explain-loading" role="status">
+                                    <span className="ai-explain-spinner" aria-hidden="true" />
+                                    <span>Trợ giảng AI đang phân tích câu hỏi...</span>
+                                </div>
+                            )}
+
+                            {explainError && (
+                                <div className="ai-explain-error" role="alert">
+                                    {explainError}
+                                </div>
+                            )}
+
+                            {aiExplanation && (
+                                <div className="ai-explanation-box">
+                                    <strong>Giải thích từ AI</strong>
+                                    <p>{aiExplanation}</p>
+                                </div>
+                            )}
                         </div>
                     )}
                 </article>

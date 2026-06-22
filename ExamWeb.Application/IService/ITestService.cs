@@ -18,5 +18,6 @@ namespace ExamWeb.Application.IService
         Task<bool> DeleteQuestionAsync(string testId, string questionId, CancellationToken cancellationToken = default);
         Task<SubmitTestResponse?> SubmitTestAsync(string testId, SubmitTestRequest request, CancellationToken cancellationToken = default);
         Task<ScreenMonitorEventDto?> RecordScreenMonitorEventAsync(string testId, ScreenMonitorEventRequest request, CancellationToken cancellationToken = default);
+        Task<string> ExplainQuestionAsync(string testId, string questionId, string selectedAnswerId, CancellationToken cancellationToken = default);
     }
 }

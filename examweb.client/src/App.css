@@ -2690,6 +2690,95 @@ textarea:focus {
     font-weight: 750;
 }
 
+.ai-explain-section {
+    display: grid;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.ai-explain-button {
+    align-items: center;
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    border: none;
+    border-radius: 10px;
+    color: #ffffff;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 14px;
+    font-weight: 800;
+    gap: 8px;
+    justify-content: center;
+    padding: 12px 16px;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ai-explain-button:hover:not(:disabled) {
+    box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
+    transform: translateY(-1px);
+}
+
+.ai-explain-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.72;
+}
+
+.ai-explain-loading {
+    align-items: center;
+    color: #1d4ed8;
+    display: flex;
+    font-size: 13px;
+    font-weight: 700;
+    gap: 10px;
+}
+
+.ai-explain-spinner {
+    animation: ai-spin 0.8s linear infinite;
+    border: 2px solid #bfdbfe;
+    border-radius: 999px;
+    border-top-color: #2563eb;
+    display: inline-block;
+    height: 16px;
+    width: 16px;
+}
+
+@keyframes ai-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.ai-explain-error {
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 8px;
+    color: #b91c1c;
+    font-size: 13px;
+    font-weight: 700;
+    padding: 10px 12px;
+}
+
+.ai-explanation-box {
+    background: #eff6ff;
+    border-left: 4px solid #3b82f6;
+    border-radius: 0 8px 8px 0;
+    color: #1e3a8a;
+    padding: 16px;
+}
+
+.ai-explanation-box strong {
+    display: block;
+    font-size: 13px;
+    font-weight: 800;
+    margin-bottom: 8px;
+}
+
+.ai-explanation-box p {
+    font-size: 14px;
+    line-height: 1.6;
+    margin: 0;
+    white-space: pre-wrap;
+}
+
 .practice-footer {
     align-items: center;
     background: #ffffff;
@@ -3883,6 +3972,22 @@ textarea:focus {
     background: rgba(120, 53, 15, 0.36);
     border-color: rgba(251, 146, 60, 0.32);
     color: #fed7aa;
+}
+
+.theme-dark .ai-explain-loading {
+    color: #93c5fd;
+}
+
+.theme-dark .ai-explain-error {
+    background: rgba(127, 29, 29, 0.35);
+    border-color: rgba(248, 113, 113, 0.35);
+    color: #fecaca;
+}
+
+.theme-dark .ai-explanation-box {
+    background: rgba(30, 58, 138, 0.35);
+    border-left-color: #60a5fa;
+    color: #dbeafe;
 }
 
 .theme-dark .answer-option,

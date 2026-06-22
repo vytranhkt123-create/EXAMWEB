@@ -1,4 +1,5 @@
 ﻿using ExamWeb.Application.IService;
+using ExamWeb.Application.Options;
 using ExamWeb.Infrastructure.Data;
 using ExamWeb.Infrastructure.Services;
 using ExamWeb.Server.Services;
@@ -69,8 +70,11 @@ namespace ExamWeb.Server
             builder.Services.AddScoped<IScheduleService, ScheduleService>();
             builder.Services.AddSingleton<OnlineClassSocketManager>();
             builder.Services.AddSingleton<IOnlineClassRealtimeNotifier>(sp => sp.GetRequiredService<OnlineClassSocketManager>());
+            builder.Services.AddSingleton<ArenaSocketManager>();
             builder.Services.AddAuthorization();
             builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JwtSettings"));
+            builder.Services.Configure<AiSettings>(builder.Configuration.GetSection("AI"));
+            builder.Services.AddHttpClient<IAiAssistantService, AiAssistantService>();
 
             var jwtSettings = builder.Configuration.GetSection("JwtSettings");
             var secretKey = jwtSettings["Key"] ?? string.Empty;
@@ -96,7 +100,7 @@ namespace ExamWeb.Server
                             var accessToken = context.Request.Query["access_token"];
                             var path = context.HttpContext.Request.Path;
                             if (!string.IsNullOrWhiteSpace(accessToken) &&
-                                path.StartsWithSegments("/ws/online-class"))
+                                (path.StartsWithSegments("/ws/online-class") || path.StartsWithSegments("/ws/arena")))
                             {
                                 context.Token = accessToken;
                             }
@@ -170,6 +174,11 @@ namespace ExamWeb.Server
             app.Map("/ws/online-class", async context =>
             {
                 var socketManager = context.RequestServices.GetRequiredService<OnlineClassSocketManager>();
+                await socketManager.HandleConnectionAsync(context);
+            });
+            app.Map("/ws/arena", async context =>
+            {
+                var socketManager = context.RequestServices.GetRequiredService<ArenaSocketManager>();
                 await socketManager.HandleConnectionAsync(context);
             });
             app.MapControllers();
