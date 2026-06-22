@@ -5,6 +5,7 @@ namespace ExamWeb.Application.DTO.Tests
         public string Id { get; set; } = string.Empty;
         public string TestName { get; set; } = string.Empty;
         public int DurationMinutes { get; set; }
+        public bool AllowPracticeMode { get; set; }
         public int QuestionCount { get; set; }
         public decimal ScoreTotal { get; set; }
         public DateTime CreatedAt { get; set; }
@@ -36,6 +37,7 @@ namespace ExamWeb.Application.DTO.Tests
         public string Id { get; set; } = string.Empty;
         public string TestName { get; set; } = string.Empty;
         public int DurationMinutes { get; set; }
+        public bool AllowPracticeMode { get; set; }
         public int QuestionCount { get; set; }
         public decimal ScoreTotal { get; set; }
         public List<QuestionTakeDto> Questions { get; set; } = new();
@@ -46,6 +48,7 @@ namespace ExamWeb.Application.DTO.Tests
         public string Id { get; set; } = string.Empty;
         public string TestName { get; set; } = string.Empty;
         public int DurationMinutes { get; set; }
+        public bool AllowPracticeMode { get; set; }
         public int QuestionCount { get; set; }
         public decimal ScoreTotal { get; set; }
         public List<QuestionPracticeDto> Questions { get; set; } = new();

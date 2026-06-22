@@ -200,8 +200,10 @@ function App() {
     const [timeLeft, setTimeLeft] = useState(null)
     const [newTestName, setNewTestName] = useState('')
     const [newDurationMinutes, setNewDurationMinutes] = useState(30)
+    const [newAllowPracticeMode, setNewAllowPracticeMode] = useState(true)
     const [editTestName, setEditTestName] = useState('')
     const [editDurationMinutes, setEditDurationMinutes] = useState(30)
+    const [editAllowPracticeMode, setEditAllowPracticeMode] = useState(true)
 
     const [adminSection, setAdminSection] = useState('dashboard')
     const [adminTestTab, setAdminTestTab] = useState('settings')
@@ -211,6 +213,7 @@ function App() {
     const [showSubmitConfirm, setShowSubmitConfirm] = useState(false)
     const [fullscreenWarning, setFullscreenWarning] = useState('')
     const [isFullscreen, setIsFullscreen] = useState(false)
+    const [markedQuestionIds, setMarkedQuestionIds] = useState([])
 
     const [inputMethod, setInputMethod] = useState('manual')
     const [questionDraft, setQuestionDraft] = useState(initialQuestionDraft)
@@ -595,6 +598,7 @@ function App() {
         setError('')
         setSubmitResult(null)
         setSelectedAnswers({})
+        setMarkedQuestionIds([])
         setLoading(true)
         submittingRef.current = false
         setFullscreenWarning('')
@@ -632,6 +636,7 @@ function App() {
         setError('')
         setSubmitResult(null)
         setSelectedAnswers({})
+        setMarkedQuestionIds([])
         setLoading(true)
         submittingRef.current = false
         setFullscreenWarning('')
@@ -697,6 +702,7 @@ function App() {
             setAdminTest(data)
             setEditTestName(data.testName)
             setEditDurationMinutes(data.durationMinutes || 30)
+            setEditAllowPracticeMode(data.allowPracticeMode !== false)
             setAssignedStudentIds(data.assignedStudentIds || [])
             await loadAttemptHistory(testId)
             await loadScreenMonitoring(testId)
@@ -727,11 +733,13 @@ function App() {
                 body: JSON.stringify({
                     testName,
                     durationMinutes,
+                    allowPracticeMode: newAllowPracticeMode,
                     assignedStudentIds: newTestAssignedStudentIds,
                 }),
             })
             setNewTestName('')
             setNewDurationMinutes(30)
+            setNewAllowPracticeMode(true)
             setNewTestAssignedStudentIds([])
             await loadTests()
             await openAdminTest(created.id, 'questions')
@@ -761,12 +769,14 @@ function App() {
                 body: JSON.stringify({
                     testName,
                     durationMinutes,
+                    allowPracticeMode: editAllowPracticeMode,
                     assignedStudentIds,
                 }),
             })
             setAdminTest(updated)
             setEditTestName(updated.testName)
             setEditDurationMinutes(updated.durationMinutes)
+            setEditAllowPracticeMode(updated.allowPracticeMode !== false)
             setAssignedStudentIds(updated.assignedStudentIds || [])
             await loadTests()
         } catch (err) {
@@ -1304,6 +1314,7 @@ function App() {
         setStudentTest(null)
         setStudentTestMode(null)
         setSelectedAnswers({})
+        setMarkedQuestionIds([])
         setSubmitResult(null)
         setStartedAt(null)
         setTimeLeft(null)
@@ -1355,6 +1366,14 @@ function App() {
         }))
     }
 
+    function toggleQuestionMark(questionId) {
+        setMarkedQuestionIds((current) =>
+            current.includes(questionId)
+                ? current.filter((id) => id !== questionId)
+                : [...current, questionId],
+        )
+    }
+
     if (!auth) {
         return (
             <div className={`app-shell auth-shell theme-${theme}`}>
@@ -1374,6 +1393,7 @@ function App() {
                 auth={auth}
                 createdStudentCredentials={createdStudentCredentials}
                 editQuestionDraft={editQuestionDraft}
+                editAllowPracticeMode={editAllowPracticeMode}
                 editDurationMinutes={editDurationMinutes}
                 editTestName={editTestName}
                 editingQuestion={editingQuestion}
@@ -1384,6 +1404,7 @@ function App() {
                 loading={loading}
                 materials={materials}
                 monitoringLoading={monitoringLoading}
+                newAllowPracticeMode={newAllowPracticeMode}
                 newDurationMinutes={newDurationMinutes}
                 newStudent={newStudent}
                 newTestAssignedStudentIds={newTestAssignedStudentIds}
@@ -1430,8 +1451,10 @@ function App() {
                 screenMonitorSessions={screenMonitorSessions}
                 setEditDurationMinutes={setEditDurationMinutes}
                 setEditQuestionDraft={setEditQuestionDraft}
+                setEditAllowPracticeMode={setEditAllowPracticeMode}
                 setEditTestName={setEditTestName}
                 setJsonDraft={setJsonDraft}
+                setNewAllowPracticeMode={setNewAllowPracticeMode}
                 setNewDurationMinutes={setNewDurationMinutes}
                 setNewStudent={setNewStudent}
                 setNewTestName={setNewTestName}
@@ -1480,7 +1503,10 @@ function App() {
                     <PracticeMode
                         auth={auth}
                         formatScore={formatScore}
+                        key={studentTest.id}
+                        markedQuestionIds={markedQuestionIds}
                         onReset={resetStudentWork}
+                        onToggleQuestionMark={toggleQuestionMark}
                         studentTest={studentTest}
                     />
                 ) : (
@@ -1496,6 +1522,7 @@ function App() {
                         isExamLocked={isExamLocked}
                         isExamRunning={isExamRunning}
                         isFullscreen={isFullscreen}
+                        markedQuestionIds={markedQuestionIds}
                         monitoringMessage={monitoringMessage}
                         monitoringStatus={monitoringStatus}
                         onReenterFullscreen={() => enterExamFullscreen(examShellRef.current)}
@@ -1503,6 +1530,7 @@ function App() {
                         onRestartScreenShare={restartScreenMonitoring}
                         onSelectAnswer={selectAnswer}
                         onSubmit={handleSubmitClick}
+                        onToggleQuestionMark={toggleQuestionMark}
                         submitResult={submitResult}
                         saving={saving}
                         selectedAnswers={selectedAnswers}
@@ -1529,6 +1557,7 @@ function App() {
 
             {showModeDialog && (
                 <TestModeDialog
+                    allowPracticeMode={pendingTest?.allowPracticeMode !== false}
                     loading={loading}
                     onCancel={cancelStartExam}
                     onSelectExam={() => confirmStartExam()}
@@ -1683,6 +1712,7 @@ function AdminDashboard({
     auth,
     createdStudentCredentials,
     editQuestionDraft,
+    editAllowPracticeMode,
     editDurationMinutes,
     editTestName,
     editingQuestion,
@@ -1693,6 +1723,7 @@ function AdminDashboard({
     loading,
     materials,
     monitoringLoading,
+    newAllowPracticeMode,
     newDurationMinutes,
     newStudent,
     newTestAssignedStudentIds,
@@ -1740,8 +1771,10 @@ function AdminDashboard({
     screenMonitorSessions,
     setEditDurationMinutes,
     setEditQuestionDraft,
+    setEditAllowPracticeMode,
     setEditTestName,
     setJsonDraft,
+    setNewAllowPracticeMode,
     setNewDurationMinutes,
     setNewStudent,
     setNewTestName,
@@ -1903,6 +1936,14 @@ function AdminDashboard({
                                     type="number"
                                     value={newDurationMinutes}
                                 />
+                                <label className="practice-toggle">
+                                    <input
+                                        checked={newAllowPracticeMode}
+                                        onChange={(event) => setNewAllowPracticeMode(event.target.checked)}
+                                        type="checkbox"
+                                    />
+                                    <span>Cho phép chế độ luyện tập</span>
+                                </label>
                                 <StudentAssignmentPanel
                                     assignedStudentIds={newTestAssignedStudentIds}
                                     onToggleAssignedStudent={onToggleNewTestAssignedStudent}
@@ -2018,6 +2059,14 @@ function AdminDashboard({
                                                 value={editDurationMinutes}
                                             />
                                         </div>
+                                        <label className="practice-toggle">
+                                            <input
+                                                checked={editAllowPracticeMode}
+                                                onChange={(event) => setEditAllowPracticeMode(event.target.checked)}
+                                                type="checkbox"
+                                            />
+                                            <span>Cho phép chế độ luyện tập</span>
+                                        </label>
                                         <button className="primary-button" disabled={saving} type="submit">
                                             Lưu cài đặt
                                         </button>

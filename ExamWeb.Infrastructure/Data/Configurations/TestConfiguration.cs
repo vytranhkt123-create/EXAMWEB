@@ -12,6 +12,7 @@ namespace ExamWeb.Infrastructure.Data.Configurations
             builder.HasKey(x => x.Id);
             builder.Property(x => x.TestName).IsRequired().HasMaxLength(120);
             builder.Property(x => x.DurationMinutes).IsRequired().HasDefaultValue(30);
+            builder.Property(x => x.AllowPracticeMode).IsRequired().HasDefaultValue(true);
             builder.Property(x => x.QuestionCount).IsRequired();
             builder.Property(x => x.ScoreTotal).HasPrecision(10, 2).IsRequired();
             builder.Property(x => x.CreatedAt).IsRequired();

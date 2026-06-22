@@ -140,12 +140,22 @@ namespace ExamWeb.Infrastructure.Services
             }
 
             var test = await LoadTestAsync(testId, true, cancellationToken);
-            return test == null ? null : MapPractice(test);
+            if (test == null)
+            {
+                return null;
+            }
+
+            if (!test.AllowPracticeMode)
+            {
+                throw new DomainException("Đề thi này không cho phép chế độ luyện tập");
+            }
+
+            return MapPractice(test);
         }
 
         public async Task<TestDetailDto> CreateTestAsync(CreateTestRequest request, CancellationToken cancellationToken = default)
         {
-            var test = new Test(request.TestName, request.DurationMinutes);
+            var test = new Test(request.TestName, request.DurationMinutes, request.AllowPracticeMode);
             _dbContext.Tests.Add(test);
             await _dbContext.SaveChangesAsync(cancellationToken);
             await ReplaceAssignedStudentsAsync(test.Id, request.AssignedStudentIds, cancellationToken);
@@ -163,6 +173,7 @@ namespace ExamWeb.Infrastructure.Services
 
             test.ChangeTestName(request.TestName);
             test.ChangeDurationMinutes(request.DurationMinutes);
+            test.ChangeAllowPracticeMode(request.AllowPracticeMode);
             test.UpdateTestSummary();
             await ReplaceAssignedStudentsAsync(testId, request.AssignedStudentIds, cancellationToken);
             await _dbContext.SaveChangesAsync(cancellationToken);
@@ -515,6 +526,7 @@ namespace ExamWeb.Infrastructure.Services
                 Id = test.Id,
                 TestName = test.TestName,
                 DurationMinutes = test.DurationMinutes,
+                AllowPracticeMode = test.AllowPracticeMode,
                 QuestionCount = test.QuestionCount,
                 ScoreTotal = test.ScoreTotal,
                 CreatedAt = test.CreatedAt
@@ -528,6 +540,7 @@ namespace ExamWeb.Infrastructure.Services
                 Id = test.Id,
                 TestName = test.TestName,
                 DurationMinutes = test.DurationMinutes,
+                AllowPracticeMode = test.AllowPracticeMode,
                 QuestionCount = test.QuestionCount,
                 ScoreTotal = test.ScoreTotal,
                 CreatedAt = test.CreatedAt,
@@ -570,6 +583,7 @@ namespace ExamWeb.Infrastructure.Services
                 Id = test.Id,
                 TestName = test.TestName,
                 DurationMinutes = test.DurationMinutes,
+                AllowPracticeMode = test.AllowPracticeMode,
                 QuestionCount = test.QuestionCount,
                 ScoreTotal = test.ScoreTotal,
                 Questions = test.Questions
@@ -599,6 +613,7 @@ namespace ExamWeb.Infrastructure.Services
                 Id = test.Id,
                 TestName = test.TestName,
                 DurationMinutes = test.DurationMinutes,
+                AllowPracticeMode = test.AllowPracticeMode,
                 QuestionCount = test.QuestionCount,
                 ScoreTotal = test.ScoreTotal,
                 Questions = test.Questions

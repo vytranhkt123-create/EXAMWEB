@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { APP_NAME } from '../config/appConfig'
 
 export function ExamFullscreenView({
@@ -11,12 +12,14 @@ export function ExamFullscreenView({
     isExamLocked,
     isExamRunning,
     isFullscreen,
+    markedQuestionIds = [],
     monitoringMessage,
     monitoringStatus,
     onReenterFullscreen,
     onReset,
     onSelectAnswer,
     onSubmit,
+    onToggleQuestionMark,
     submitResult,
     saving,
     selectedAnswers,
@@ -74,6 +77,7 @@ export function ExamFullscreenView({
                     <TestResultView
                         formatDuration={formatDuration}
                         formatScore={formatScore}
+                        markedQuestionIds={markedQuestionIds}
                         result={submitResult}
                         studentTest={studentTest}
                     />
@@ -89,7 +93,18 @@ export function ExamFullscreenView({
                             <article className="question-block" key={question.id}>
                                 <div className="question-head">
                                     <h3>Câu {index + 1}</h3>
-                                    <span className="score-badge">{formatScore(question.score)} điểm</span>
+                                    <div className="question-actions">
+                                        <button
+                                            aria-pressed={markedQuestionIds.includes(question.id)}
+                                            className={`mark-question-button ${markedQuestionIds.includes(question.id) ? 'active' : ''}`}
+                                            onClick={() => onToggleQuestionMark?.(question.id)}
+                                            title={markedQuestionIds.includes(question.id) ? 'Bỏ đánh dấu' : 'Đánh dấu câu hỏi'}
+                                            type="button"
+                                        >
+                                            ⚑
+                                        </button>
+                                        <span className="score-badge">{formatScore(question.score)} điểm</span>
+                                    </div>
                                 </div>
                                 <p className="question-content">{question.content}</p>
                                 <div className="answer-grid">
@@ -150,9 +165,36 @@ export function ExamFullscreenView({
     )
 }
 
-function TestResultView({ formatDuration, formatScore, result, studentTest }) {
-    const questionsById = new Map((studentTest.questions || []).map((question) => [question.id, question]))
-    const detailedResults = result.results || []
+function TestResultView({ formatDuration, formatScore, markedQuestionIds = [], result, studentTest }) {
+    const [activeFilter, setActiveFilter] = useState('all')
+    const markedQuestionSet = useMemo(() => new Set(markedQuestionIds), [markedQuestionIds])
+    const questionsById = useMemo(
+        () => new Map((studentTest.questions || []).map((question) => [question.id, question])),
+        [studentTest.questions],
+    )
+    const detailedResults = useMemo(() => result.results || [], [result.results])
+    const resultIndexByQuestionId = useMemo(
+        () => new Map(detailedResults.map((item, index) => [item.questionId, index])),
+        [detailedResults],
+    )
+    const filterOptions = useMemo(() => [
+        { label: 'Tất cả', value: 'all', count: detailedResults.length },
+        { label: 'Câu đúng', value: 'correct', count: detailedResults.filter((item) => item.isCorrect).length },
+        { label: 'Câu sai', value: 'incorrect', count: detailedResults.filter((item) => !item.isCorrect).length },
+        {
+            label: 'Câu đánh dấu',
+            value: 'marked',
+            count: detailedResults.filter((item) => markedQuestionSet.has(item.questionId)).length,
+        },
+    ], [detailedResults, markedQuestionSet])
+    const filteredResults = useMemo(() => {
+        return detailedResults.filter((item) => {
+            if (activeFilter === 'correct') return item.isCorrect
+            if (activeFilter === 'incorrect') return !item.isCorrect
+            if (activeFilter === 'marked') return markedQuestionSet.has(item.questionId)
+            return true
+        })
+    }, [activeFilter, detailedResults, markedQuestionSet])
 
     return (
         <section className="test-result-view">
@@ -191,22 +233,47 @@ function TestResultView({ formatDuration, formatScore, result, studentTest }) {
                 </span>
             </div>
 
+            <div className="result-filter-row" aria-label="Lọc kết quả thi">
+                {filterOptions.map((filter) => (
+                    <button
+                        className={activeFilter === filter.value ? 'active' : ''}
+                        key={filter.value}
+                        onClick={() => setActiveFilter(filter.value)}
+                        type="button"
+                    >
+                        <span>{filter.label}</span>
+                        <strong>{filter.count}</strong>
+                    </button>
+                ))}
+            </div>
+
             <div className="question-stack">
-                {detailedResults.map((item, index) => {
+                {filteredResults.length === 0 && (
+                    <div className="empty-list">Không có câu hỏi phù hợp với bộ lọc này.</div>
+                )}
+                {filteredResults.map((item) => {
                     // Bước 4: ghép kết quả backend với câu hỏi gốc để lấy lại danh sách đáp án.
                     const question = questionsById.get(item.questionId)
                     const answers = question?.answers || []
+                    const isMarked = markedQuestionSet.has(item.questionId)
+                    const originalIndex = resultIndexByQuestionId.get(item.questionId) ?? 0
 
                     return (
-                        <article className={`question-block review-question ${item.isCorrect ? 'correct' : 'incorrect'}`} key={item.questionId}>
+                        <article
+                            className={`question-block review-question ${item.isCorrect ? 'correct' : 'incorrect'} ${isMarked ? 'marked' : ''}`}
+                            key={item.questionId}
+                        >
                             <div className="question-head review-question-head">
                                 <div>
-                                    <h3>Câu {index + 1}</h3>
+                                    <h3>Câu {originalIndex + 1}</h3>
                                     <p className="question-content">{item.questionContent || question?.content}</p>
                                 </div>
-                                <div className="review-score">
-                                    <span>Điểm đạt</span>
-                                    <strong>{formatScore(item.scoreEarned)}</strong>
+                                <div className="review-meta">
+                                    {isMarked && <span className="marked-badge">Đã đánh dấu</span>}
+                                    <div className="review-score">
+                                        <span>Điểm đạt</span>
+                                        <strong>{formatScore(item.scoreEarned)}</strong>
+                                    </div>
                                 </div>
                             </div>
 

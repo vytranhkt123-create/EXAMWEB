@@ -1,23 +1,45 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { APP_NAME } from '../config/appConfig'
 
-export function PracticeMode({ auth, formatScore, onReset, studentTest }) {
-    const questions = studentTest?.questions || []
+const AUTO_ADVANCE_OPTIONS = [
+    { label: 'Không', value: 0 },
+    { label: '1 giây', value: 1 },
+    { label: '2 giây', value: 2 },
+    { label: '3 giây', value: 3 },
+]
+
+export function PracticeMode({
+    auth,
+    formatScore,
+    markedQuestionIds = [],
+    onReset,
+    onToggleQuestionMark,
+    studentTest,
+}) {
+    const questions = useMemo(() => studentTest?.questions || [], [studentTest?.questions])
     const totalQuestions = questions.length
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
     const [selectedAnswers, setSelectedAnswers] = useState({})
+    const [autoAdvanceDelaySeconds, setAutoAdvanceDelaySeconds] = useState(0)
     const [isFinished, setIsFinished] = useState(false)
+    const autoAdvanceTimeoutRef = useRef(null)
+
+    const clearAutoAdvanceTimeout = useCallback(() => {
+        if (autoAdvanceTimeoutRef.current) {
+            window.clearTimeout(autoAdvanceTimeoutRef.current)
+            autoAdvanceTimeoutRef.current = null
+        }
+    }, [])
 
     useEffect(() => {
-        setCurrentQuestionIndex(0)
-        setSelectedAnswers({})
-        setIsFinished(false)
-    }, [studentTest?.id])
+        return () => clearAutoAdvanceTimeout()
+    }, [clearAutoAdvanceTimeout, studentTest?.id])
 
     const currentQuestion = questions[currentQuestionIndex]
     const selectedAnswerId = currentQuestion ? selectedAnswers[currentQuestion.id] : null
     const selectedAnswer = currentQuestion?.answers.find((answer) => answer.id === selectedAnswerId)
     const isCurrentQuestionLocked = Boolean(selectedAnswerId)
+    const isCurrentQuestionMarked = currentQuestion ? markedQuestionIds.includes(currentQuestion.id) : false
 
     const summary = useMemo(() => {
         return questions.reduce(
@@ -37,13 +59,32 @@ export function PracticeMode({ auth, formatScore, onReset, studentTest }) {
     function selectAnswer(answerId) {
         if (!currentQuestion || isCurrentQuestionLocked || isFinished) return
 
+        clearAutoAdvanceTimeout()
+        const selectedQuestionIndex = currentQuestionIndex
+
         setSelectedAnswers((current) => ({
             ...current,
             [currentQuestion.id]: answerId,
         }))
+
+        if (autoAdvanceDelaySeconds > 0) {
+            autoAdvanceTimeoutRef.current = window.setTimeout(() => {
+                autoAdvanceTimeoutRef.current = null
+                if (selectedQuestionIndex >= totalQuestions - 1) {
+                    setIsFinished(true)
+                    return
+                }
+
+                setCurrentQuestionIndex((current) => {
+                    if (current !== selectedQuestionIndex) return current
+                    return current + 1
+                })
+            }, autoAdvanceDelaySeconds * 1000)
+        }
     }
 
     function goNext() {
+        clearAutoAdvanceTimeout()
         if (!isCurrentQuestionLocked) return
 
         if (currentQuestionIndex >= totalQuestions - 1) {
@@ -55,6 +96,7 @@ export function PracticeMode({ auth, formatScore, onReset, studentTest }) {
     }
 
     function restartPractice() {
+        clearAutoAdvanceTimeout()
         setCurrentQuestionIndex(0)
         setSelectedAnswers({})
         setIsFinished(false)
@@ -83,6 +125,7 @@ export function PracticeMode({ auth, formatScore, onReset, studentTest }) {
             <PracticeResultView
                 auth={auth}
                 formatScore={formatScore}
+                markedQuestionIds={markedQuestionIds}
                 onReset={onReset}
                 onRestart={restartPractice}
                 questions={questions}
@@ -97,7 +140,15 @@ export function PracticeMode({ auth, formatScore, onReset, studentTest }) {
 
     return (
         <section className="practice-shell">
-            <PracticeHeader auth={auth} studentTest={studentTest} />
+            <PracticeHeader
+                auth={auth}
+                autoAdvanceDelaySeconds={autoAdvanceDelaySeconds}
+                onChangeAutoAdvanceDelay={(value) => {
+                    clearAutoAdvanceTimeout()
+                    setAutoAdvanceDelaySeconds(value)
+                }}
+                studentTest={studentTest}
+            />
 
             <main className="practice-body">
                 <div className="practice-progress">
@@ -111,7 +162,18 @@ export function PracticeMode({ auth, formatScore, onReset, studentTest }) {
                 <article className="question-block practice-question-card">
                     <div className="question-head">
                         <h3>Câu {currentQuestionIndex + 1}</h3>
-                        <span className="score-badge">{formatScore(currentQuestion.score)} điểm</span>
+                        <div className="question-actions">
+                            <button
+                                aria-pressed={isCurrentQuestionMarked}
+                                className={`mark-question-button ${isCurrentQuestionMarked ? 'active' : ''}`}
+                                onClick={() => onToggleQuestionMark?.(currentQuestion.id)}
+                                title={isCurrentQuestionMarked ? 'Bỏ đánh dấu' : 'Đánh dấu câu hỏi'}
+                                type="button"
+                            >
+                                ⚑
+                            </button>
+                            <span className="score-badge">{formatScore(currentQuestion.score)} điểm</span>
+                        </div>
                     </div>
                     <p className="question-content">{currentQuestion.content}</p>
 
@@ -171,7 +233,12 @@ export function PracticeMode({ auth, formatScore, onReset, studentTest }) {
     )
 }
 
-function PracticeHeader({ auth, studentTest }) {
+function PracticeHeader({
+    auth,
+    autoAdvanceDelaySeconds = 0,
+    onChangeAutoAdvanceDelay,
+    studentTest,
+}) {
     return (
         <header className="practice-topbar">
             <div>
@@ -179,7 +246,24 @@ function PracticeHeader({ auth, studentTest }) {
                 <strong>{studentTest.testName}</strong>
                 <span>{auth.displayName}</span>
             </div>
-            <span className="practice-mode-pill">Luyện tập</span>
+            <div className="practice-topbar-actions">
+                {onChangeAutoAdvanceDelay && (
+                    <label className="auto-advance-control">
+                        <span>Tự chuyển câu</span>
+                        <select
+                            onChange={(event) => onChangeAutoAdvanceDelay(Number(event.target.value))}
+                            value={autoAdvanceDelaySeconds}
+                        >
+                            {AUTO_ADVANCE_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                    {option.label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                )}
+                <span className="practice-mode-pill">Luyện tập</span>
+            </div>
         </header>
     )
 }
@@ -187,6 +271,7 @@ function PracticeHeader({ auth, studentTest }) {
 function PracticeResultView({
     auth,
     formatScore,
+    markedQuestionIds = [],
     onReset,
     onRestart,
     questions,
@@ -194,6 +279,44 @@ function PracticeResultView({
     studentTest,
     summary,
 }) {
+    const [activeFilter, setActiveFilter] = useState('all')
+    const markedQuestionSet = useMemo(() => new Set(markedQuestionIds), [markedQuestionIds])
+    const filterOptions = useMemo(() => [
+        { label: 'Tất cả', value: 'all', count: questions.length },
+        {
+            label: 'Câu đúng',
+            value: 'correct',
+            count: questions.filter((question) => {
+                const selectedAnswerId = selectedAnswers[question.id]
+                return question.answers.some((answer) => answer.id === selectedAnswerId && answer.isCorrect)
+            }).length,
+        },
+        {
+            label: 'Câu sai',
+            value: 'incorrect',
+            count: questions.filter((question) => {
+                const selectedAnswerId = selectedAnswers[question.id]
+                return !question.answers.some((answer) => answer.id === selectedAnswerId && answer.isCorrect)
+            }).length,
+        },
+        {
+            label: 'Câu đánh dấu',
+            value: 'marked',
+            count: questions.filter((question) => markedQuestionSet.has(question.id)).length,
+        },
+    ], [markedQuestionSet, questions, selectedAnswers])
+    const filteredQuestions = useMemo(() => {
+        return questions.filter((question) => {
+            const selectedAnswerId = selectedAnswers[question.id]
+            const isCorrect = question.answers.some((answer) => answer.id === selectedAnswerId && answer.isCorrect)
+
+            if (activeFilter === 'correct') return isCorrect
+            if (activeFilter === 'incorrect') return !isCorrect
+            if (activeFilter === 'marked') return markedQuestionSet.has(question.id)
+            return true
+        })
+    }, [activeFilter, markedQuestionSet, questions, selectedAnswers])
+
     return (
         <section className="practice-shell">
             <PracticeHeader auth={auth} studentTest={studentTest} />
@@ -231,24 +354,46 @@ function PracticeResultView({
                         </div>
                     </div>
 
+                    <div className="result-filter-row" aria-label="Lọc kết quả luyện tập">
+                        {filterOptions.map((filter) => (
+                            <button
+                                className={activeFilter === filter.value ? 'active' : ''}
+                                key={filter.value}
+                                onClick={() => setActiveFilter(filter.value)}
+                                type="button"
+                            >
+                                <span>{filter.label}</span>
+                                <strong>{filter.count}</strong>
+                            </button>
+                        ))}
+                    </div>
+
                     <div className="question-stack">
-                        {questions.map((question, index) => {
+                        {filteredQuestions.length === 0 && (
+                            <div className="empty-list">Không có câu hỏi phù hợp với bộ lọc này.</div>
+                        )}
+                        {filteredQuestions.map((question) => {
+                            const originalIndex = questions.findIndex((item) => item.id === question.id)
                             const selectedAnswerId = selectedAnswers[question.id]
                             const selectedAnswer = question.answers.find((answer) => answer.id === selectedAnswerId)
+                            const isMarked = markedQuestionSet.has(question.id)
 
                             return (
                                 <article
-                                    className={`question-block review-question ${selectedAnswer?.isCorrect ? 'correct' : 'incorrect'}`}
+                                    className={`question-block review-question ${selectedAnswer?.isCorrect ? 'correct' : 'incorrect'} ${isMarked ? 'marked' : ''}`}
                                     key={question.id}
                                 >
                                     <div className="question-head review-question-head">
                                         <div>
-                                            <h3>Câu {index + 1}</h3>
+                                            <h3>Câu {originalIndex + 1}</h3>
                                             <p className="question-content">{question.content}</p>
                                         </div>
-                                        <div className="review-score">
-                                            <span>Điểm đạt</span>
-                                            <strong>{formatScore(selectedAnswer?.isCorrect ? question.score : 0)}</strong>
+                                        <div className="review-meta">
+                                            {isMarked && <span className="marked-badge">Đã đánh dấu</span>}
+                                            <div className="review-score">
+                                                <span>Điểm đạt</span>
+                                                <strong>{formatScore(selectedAnswer?.isCorrect ? question.score : 0)}</strong>
+                                            </div>
                                         </div>
                                     </div>
 

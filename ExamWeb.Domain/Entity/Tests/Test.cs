@@ -11,16 +11,18 @@ namespace ExamWeb.Domain.Entity.Tests
         public int DurationMinutes { get; private set; } = 30;
         public int QuestionCount { get; private set; } = 0;
         public decimal ScoreTotal { get; private set; } = 0;
+        public bool AllowPracticeMode { get; private set; } = true;
         public DateTime CreatedAt { get; private set; }
 
         private readonly List<Question> _questions = new();
         public IReadOnlyCollection<Question> Questions => _questions.AsReadOnly();
 
-        public Test(string testName, int durationMinutes = 30)
+        public Test(string testName, int durationMinutes = 30, bool allowPracticeMode = true)
         {
             Id = "Test_" + Guid.NewGuid().ToString("N");
             ChangeTestName(testName);
             ChangeDurationMinutes(durationMinutes);
+            ChangeAllowPracticeMode(allowPracticeMode);
             ChangeScoreTotal();
             CreatedAt = DateTime.UtcNow;
         }
@@ -34,6 +36,10 @@ namespace ExamWeb.Domain.Entity.Tests
             if (durationMinutes < 1 || durationMinutes > 240)
                 throw new DomainException("Thời gian làm bài phải từ 1 đến 240 phút");
             DurationMinutes = durationMinutes;
+        }
+        public void ChangeAllowPracticeMode(bool allowPracticeMode)
+        {
+            AllowPracticeMode = allowPracticeMode;
         }
         public void ChangeScoreTotal()
         {

@@ -1,4 +1,5 @@
 export function TestModeDialog({
+    allowPracticeMode = true,
     loading,
     onCancel,
     onSelectExam,
@@ -19,10 +20,19 @@ export function TestModeDialog({
                         <small>Làm toàn bộ câu hỏi và xem kết quả sau khi nộp bài.</small>
                     </button>
 
-                    <button className="mode-choice practice" disabled={loading} onClick={onSelectPractice} type="button">
+                    <button
+                        className="mode-choice practice"
+                        disabled={loading || !allowPracticeMode}
+                        onClick={onSelectPractice}
+                        type="button"
+                    >
                         <span className="mode-choice-icon">L</span>
                         <strong>Luyện Tập</strong>
-                        <small>Làm từng câu, khóa đáp án và xem đúng sai ngay.</small>
+                        <small>
+                            {allowPracticeMode
+                                ? 'Làm từng câu, khóa đáp án và xem đúng sai ngay.'
+                                : 'Thầy giáo chưa bật chế độ luyện tập cho đề này.'}
+                        </small>
                     </button>
                 </div>
 

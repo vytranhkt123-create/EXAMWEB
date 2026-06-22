@@ -1028,6 +1028,44 @@ textarea:focus {
     margin: 0;
 }
 
+.question-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
+.mark-question-button {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #64748b;
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 17px;
+    font-weight: 900;
+    height: 36px;
+    justify-content: center;
+    line-height: 1;
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+    width: 36px;
+}
+
+.mark-question-button:hover {
+    border-color: var(--amber);
+    color: #b45309;
+    transform: translateY(-1px);
+}
+
+.mark-question-button.active {
+    background: #fffbeb;
+    border-color: #f59e0b;
+    color: #b45309;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+
 .question-content {
     color: #243042;
     font-size: 16px;
@@ -1173,8 +1211,56 @@ textarea:focus {
     margin: 4px 0 0;
 }
 
+.result-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.result-filter-row button {
+    align-items: center;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #334155;
+    cursor: pointer;
+    display: inline-flex;
+    font-family: inherit;
+    font-weight: 850;
+    gap: 8px;
+    min-height: 38px;
+    padding: 0 12px;
+    transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.16s ease;
+}
+
+.result-filter-row button:hover {
+    border-color: var(--blue);
+    transform: translateY(-1px);
+}
+
+.result-filter-row button.active {
+    background: #eff6ff;
+    border-color: var(--blue);
+    color: #1d4ed8;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.result-filter-row strong {
+    background: rgba(37, 99, 235, 0.1);
+    border-radius: 999px;
+    color: inherit;
+    font-size: 12px;
+    line-height: 1;
+    padding: 5px 7px;
+}
+
 .review-question {
     border-left: 5px solid #dbe4f3;
+}
+
+.review-question.marked {
+    border-top-color: #fbbf24;
+    box-shadow: inset 0 1px 0 rgba(245, 158, 11, 0.22);
 }
 
 .review-question.correct {
@@ -1194,6 +1280,26 @@ textarea:focus {
 
 .review-question-head .question-content {
     margin-bottom: 0;
+}
+
+.review-meta {
+    align-items: end;
+    display: grid;
+    gap: 8px;
+    justify-items: end;
+}
+
+.marked-badge {
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 999px;
+    color: #b45309;
+    display: inline-flex;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    padding: 7px 9px;
+    white-space: nowrap;
 }
 
 .review-score {
@@ -1614,6 +1720,32 @@ textarea:focus {
     accent-color: #0f766e;
     height: 18px;
     width: 18px;
+}
+
+.practice-toggle {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    color: #243042;
+    cursor: pointer;
+    display: flex;
+    gap: 10px;
+    margin: 0;
+    min-height: 44px;
+    padding: 10px 12px;
+}
+
+.practice-toggle input {
+    accent-color: var(--teal);
+    flex: 0 0 auto;
+    height: 18px;
+    width: 18px;
+}
+
+.practice-toggle span {
+    font-size: 14px;
+    font-weight: 850;
 }
 
 .icon-only {
@@ -2365,6 +2497,50 @@ textarea:focus {
 .practice-topbar div {
     display: grid;
     gap: 2px;
+}
+
+.practice-topbar-actions {
+    align-items: center;
+    display: flex !important;
+    flex-wrap: wrap;
+    gap: 10px !important;
+    justify-content: flex-end;
+}
+
+.auto-advance-control {
+    align-items: center;
+    background: #f8fafc;
+    border: 1px solid #dbe4f3;
+    border-radius: 8px;
+    display: inline-flex;
+    gap: 8px;
+    margin: 0;
+    min-height: 38px;
+    padding: 6px 8px 6px 10px;
+}
+
+.auto-advance-control span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.auto-advance-control select {
+    appearance: none;
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    color: #111827;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 850;
+    min-height: 28px;
+    padding: 4px 28px 4px 10px;
+    width: auto;
 }
 
 .practice-topbar strong {
@@ -3606,9 +3782,19 @@ textarea:focus {
 .theme-dark .material-item,
 .theme-dark .test-row,
 .theme-dark .chat-message,
-.theme-dark .empty-list {
+.theme-dark .empty-list,
+.theme-dark .practice-toggle,
+.theme-dark .auto-advance-control,
+.theme-dark .result-filter-row button,
+.theme-dark .mark-question-button {
     background: rgba(15, 23, 42, 0.72);
     border-color: rgba(148, 163, 184, 0.24);
+    color: #e5e7eb;
+}
+
+.theme-dark .auto-advance-control select {
+    background: rgba(2, 6, 23, 0.68);
+    border-color: rgba(148, 163, 184, 0.28);
     color: #e5e7eb;
 }
 
@@ -3652,8 +3838,22 @@ textarea:focus {
 
 .theme-dark .practice-topbar span:not(.practice-mode-pill),
 .theme-dark .mode-dialog-lead,
-.theme-dark .mode-choice small {
+.theme-dark .mode-choice small,
+.theme-dark .auto-advance-control span {
     color: #cbd5e1;
+}
+
+.theme-dark .mark-question-button.active,
+.theme-dark .marked-badge {
+    background: rgba(146, 64, 14, 0.32);
+    border-color: rgba(251, 191, 36, 0.42);
+    color: #fde68a;
+}
+
+.theme-dark .result-filter-row button.active {
+    background: rgba(37, 99, 235, 0.28);
+    border-color: rgba(96, 165, 250, 0.54);
+    color: #bfdbfe;
 }
 
 .theme-dark .mode-choice {
@@ -4508,6 +4708,12 @@ textarea:focus {
         flex-direction: column;
     }
 
+    .review-meta {
+        align-items: stretch;
+        justify-items: stretch;
+        width: 100%;
+    }
+
     .review-score {
         flex: none;
         text-align: left;
@@ -4622,6 +4828,19 @@ textarea:focus {
     .practice-footer {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .practice-topbar-actions,
+    .result-filter-row {
+        justify-content: flex-start;
+    }
+
+    .auto-advance-control {
+        width: 100%;
+    }
+
+    .auto-advance-control select {
+        flex: 1;
     }
 
     .practice-body {

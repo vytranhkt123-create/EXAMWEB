@@ -4,6 +4,7 @@ namespace ExamWeb.Application.DTO.Tests
     {
         public string TestName { get; set; } = string.Empty;
         public int DurationMinutes { get; set; } = 30;
+        public bool AllowPracticeMode { get; set; } = true;
         public List<int> AssignedStudentIds { get; set; } = new();
     }
 
@@ -11,6 +12,7 @@ namespace ExamWeb.Application.DTO.Tests
     {
         public string TestName { get; set; } = string.Empty;
         public int DurationMinutes { get; set; } = 30;
+        public bool AllowPracticeMode { get; set; } = true;
         public List<int> AssignedStudentIds { get; set; } = new();
     }
 
