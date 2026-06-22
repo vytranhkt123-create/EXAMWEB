@@ -50,4 +50,9 @@ namespace ExamWeb.Application.DTO.Tests
         public string? Message { get; set; }
         public string? ImageDataUrl { get; set; }
     }
+
+    public class ExplainQuestionRequest
+    {
+        public string SelectedAnswerId { get; set; } = string.Empty;
+    }
 }

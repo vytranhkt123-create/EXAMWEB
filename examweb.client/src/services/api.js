@@ -108,6 +108,16 @@ export function updateTestQuestion(testId, questionId, payload) {
     })
 }
 
+export function explainQuestionWithAI(testId, questionId, selectedAnswerId) {
+    return api(
+        `/${encodeURIComponent(testId)}/questions/${encodeURIComponent(questionId)}/explain`,
+        {
+            method: 'POST',
+            body: JSON.stringify({ selectedAnswerId }),
+        },
+    )
+}
+
 export function studentsApi(path = '', options = {}) {
     return requestJson(buildApiUrl(`/api/students${path}`), withAuthHeaders(options))
 }
@@ -136,5 +146,19 @@ export function getOnlineClassSocketUrl(session) {
     const url = new URL('/ws/online-class', API_BASE_URL || window.location.origin)
     url.protocol = 'wss:'
     url.searchParams.set('access_token', session.accessToken)
+    return url.toString()
+}
+
+export function arenaApi(path = '', options = {}) {
+    return requestJson(buildApiUrl(`/api/arenas${path}`), withAuthHeaders(options))
+}
+
+export function getArenaSocketUrl(session) {
+    const baseUrl = API_BASE_URL || window.location.origin
+    const url = new URL('/ws/arena', baseUrl)
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    if (session?.accessToken) {
+        url.searchParams.set('access_token', session.accessToken)
+    }
     return url.toString()
 }

@@ -184,5 +184,28 @@ namespace ExamWeb.Server.Controllers
                 return BadRequest(new { message = ex.Message });
             }
         }
+
+        [Authorize(Roles = "User")]
+        [HttpPost("{testId}/questions/{questionId}/explain")]
+        public async Task<ActionResult<ExplainQuestionResponse>> ExplainQuestion(
+            string testId,
+            string questionId,
+            ExplainQuestionRequest request,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var explanation = await _testService.ExplainQuestionAsync(
+                    testId,
+                    questionId,
+                    request.SelectedAnswerId,
+                    cancellationToken);
+                return Ok(new ExplainQuestionResponse { Explanation = explanation });
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
     }
 }
