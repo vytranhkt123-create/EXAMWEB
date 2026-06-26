@@ -18,6 +18,7 @@ namespace ExamWeb.Server.Controllers
         private readonly AppDbContext _dbContext;
         private readonly IArenaService _arenaService;
 
+        public ArenaController(AppDbContext dbContext, IArenaService arenaService)
         {
             _dbContext = dbContext;
             _arenaService = arenaService;
@@ -30,6 +31,105 @@ namespace ExamWeb.Server.Controllers
             return Ok(arenas);
         }
 
+        [HttpGet("{arenaId}")]
+        public async Task<IActionResult> GetArena(string arenaId, CancellationToken cancellationToken)
+        {
+            var arena = await _arenaService.GetArenaAsync(arenaId, cancellationToken);
+            if (arena == null)
+            {
+                return NotFound(new { message = "Không tìm thấy đấu trường này." });
+            }
+            return Ok(arena);
+        }
+
+        [HttpPost]
+        public async Task<IActionResult> CreateArena(CreateArenaRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var response = await _arenaService.CreateArenaAsync(request, cancellationToken);
+                return Ok(response);
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPut("{arenaId}")]
+        public async Task<IActionResult> UpdateArena(string arenaId, UpdateArenaRequest request, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var arena = await _arenaService.UpdateArenaAsync(arenaId, request, cancellationToken);
+                if (arena == null)
+                {
+                    return NotFound(new { message = "Không tìm thấy đấu trường này." });
+                }
+                return Ok(arena);
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpDelete("{arenaId}")]
+        public async Task<IActionResult> DeleteArena(string arenaId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var result = await _arenaService.DeleteArenaAsync(arenaId, cancellationToken);
+                if (!result)
+                {
+                    return NotFound(new { message = "Không tìm thấy đấu trường này." });
+                }
+                return Ok(new { message = "Đã xóa đấu trường thành công." });
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("{arenaId}/activate")]
+        public async Task<IActionResult> ActivateArena(string arenaId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var result = await _arenaService.ActivateArenaAsync(arenaId, cancellationToken);
+                if (!result)
+                {
+                    return NotFound(new { message = "Không tìm thấy đấu trường này." });
+                }
+                return Ok(new { message = "Đã kích hoạt đấu trường thành công." });
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("{arenaId}/deactivate")]
+        public async Task<IActionResult> DeactivateArena(string arenaId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var result = await _arenaService.DeactivateArenaAsync(arenaId, cancellationToken);
+                if (!result)
+                {
+                    return NotFound(new { message = "Không tìm thấy đấu trường này." });
+                }
+                return Ok(new { message = "Đã hủy kích hoạt đấu trường thành công." });
+            }
+            catch (System.Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        [HttpPost("create-room/{testId}")]
+        [Authorize(Roles = "Admin")]
         public async Task<IActionResult> CreateRoom(string testId, CancellationToken cancellationToken)
         {
             var test = await _dbContext.Tests
