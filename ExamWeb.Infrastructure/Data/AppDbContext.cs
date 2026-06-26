@@ -6,6 +6,7 @@ using ExamWeb.Domain.Entity.OnlineClasses;
 using ExamWeb.Domain.Entity.Questions;
 using ExamWeb.Domain.Entity.Schedules;
 using ExamWeb.Domain.Entity.Tests;
+using ExamWeb.Domain.Entity.Arenas;
 using Microsoft.EntityFrameworkCore;
 using System.Reflection;
 
@@ -34,5 +35,6 @@ namespace ExamWeb.Infrastructure.Data
         public DbSet<ClassRoomMember> ClassRoomMembers { get; set; }
         public DbSet<ClassSchedule> ClassSchedules { get; set; }
         public DbSet<ScheduleAttendance> ScheduleAttendances { get; set; }
+        public DbSet<Arena> Arenas { get; set; }
     }
 }

@@ -1,24 +1,35 @@
+using ExamWeb.Application.DTO.Arenas;
+using ExamWeb.Application.IService;
 using ExamWeb.Infrastructure.Data;
 using ExamWeb.Server.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using ArenaQuestionDto = ExamWeb.Server.Services.ArenaQuestionDto;
+using ArenaAnswerDto = ExamWeb.Server.Services.ArenaAnswerDto;
 
 namespace ExamWeb.Server.Controllers
 {
     [ApiController]
     [Route("api/arenas")]
-    [Authorize(Roles = "Admin")]
+    [Authorize]
     public class ArenaController : ControllerBase
     {
         private readonly AppDbContext _dbContext;
+        private readonly IArenaService _arenaService;
 
-        public ArenaController(AppDbContext dbContext)
         {
             _dbContext = dbContext;
+            _arenaService = arenaService;
         }
 
-        [HttpPost("create/{testId}")]
+        [HttpGet]
+        public async Task<IActionResult> GetArenas(CancellationToken cancellationToken)
+        {
+            var arenas = await _arenaService.GetArenasAsync(cancellationToken);
+            return Ok(arenas);
+        }
+
         public async Task<IActionResult> CreateRoom(string testId, CancellationToken cancellationToken)
         {
             var test = await _dbContext.Tests

@@ -68,6 +68,7 @@ namespace ExamWeb.Server
             builder.Services.AddScoped<IStudentService, StudentService>();
             builder.Services.AddScoped<IOnlineClassService, OnlineClassService>();
             builder.Services.AddScoped<IScheduleService, ScheduleService>();
+            builder.Services.AddScoped<IArenaService, ArenaService>();
             builder.Services.AddSingleton<OnlineClassSocketManager>();
             builder.Services.AddSingleton<IOnlineClassRealtimeNotifier>(sp => sp.GetRequiredService<OnlineClassSocketManager>());
             builder.Services.AddSingleton<ArenaSocketManager>();
