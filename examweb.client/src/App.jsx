@@ -2058,7 +2058,7 @@ function AdminDashboard({
                                 loading={loading}
                                 tests={tests}
                                 error={error}
-                                onOpenTest={openAdminTest}
+                                onOpenTest={onOpenTest}
                                 onCreateArena={() => setArenaView('create')}
                                 onOpenArena={(arenaId) => {
                                     setSelectedArenaId(arenaId)
@@ -2102,7 +2102,7 @@ function AdminDashboard({
                                     loading={loading}
                                     tests={tests}
                                     error={error}
-                                    onOpenTest={openAdminTest}
+                                    onOpenTest={onOpenTest}
                                     selectedArenaId={selectedArenaId}
                                     onCreateArena={() => setArenaView('create')}
                                 />
