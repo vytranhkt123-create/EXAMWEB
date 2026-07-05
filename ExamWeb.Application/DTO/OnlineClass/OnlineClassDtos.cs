@@ -115,6 +115,18 @@ namespace ExamWeb.Application.DTO.OnlineClass
         public int MemberCount { get; set; }
         public bool IsMember { get; set; }
         public IReadOnlyList<int> MemberAccountIds { get; set; } = Array.Empty<int>();
+        public IReadOnlyList<ClassRoomMemberDto> Members { get; set; } = Array.Empty<ClassRoomMemberDto>();
+    }
+
+    public class ClassRoomMemberDto
+    {
+        public int AccountId { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public string Role { get; set; } = string.Empty;
+        public string? Grade { get; set; }
+        public string? ClassName { get; set; }
+        public string AvatarText { get; set; } = string.Empty;
     }
 
     public class CreateOnlineClassRoomRequest

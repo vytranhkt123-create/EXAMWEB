@@ -1,4 +1,19 @@
+export const MAX_PDF_FILE_SIZE_BYTES = 50 * 1024 * 1024
+
+export function validatePdfFileSize(file) {
+    if (file?.size > MAX_PDF_FILE_SIZE_BYTES) {
+        return 'File exceeds 50MB'
+    }
+
+    return ''
+}
+
 export function readFileAsDataUrl(file) {
+    const sizeError = validatePdfFileSize(file)
+    if (sizeError) {
+        return Promise.reject(new Error(sizeError))
+    }
+
     return new Promise((resolve, reject) => {
         const reader = new FileReader()
         reader.onload = () => resolve(reader.result)

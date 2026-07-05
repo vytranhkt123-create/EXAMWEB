@@ -41,6 +41,7 @@ namespace ExamWeb.Server.Controllers
 
         [Authorize(Roles = "Admin")]
         [HttpPost]
+        [RequestSizeLimit(52428800)]
         public async Task<ActionResult<MaterialDto>> CreateMaterial(CreateMaterialRequest request, CancellationToken cancellationToken)
         {
             try

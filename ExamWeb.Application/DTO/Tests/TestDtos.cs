@@ -4,6 +4,7 @@ namespace ExamWeb.Application.DTO.Tests
     {
         public string Id { get; set; } = string.Empty;
         public string TestName { get; set; } = string.Empty;
+        public string? ClassRoomId { get; set; }
         public int DurationMinutes { get; set; }
         public bool AllowPracticeMode { get; set; }
         public int QuestionCount { get; set; }

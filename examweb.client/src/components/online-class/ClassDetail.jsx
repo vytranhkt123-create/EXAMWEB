@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { classVideosApi } from '../../services/api'
+import { classVideosApi, materialFileApi } from '../../services/api'
 import { getYouTubeEmbedUrl } from '../../utils/youtube'
 import './ClassDetail.css'
 
 const classTabs = [
     { id: 'members', label: 'Members' },
     { id: 'exams', label: 'Exams' },
+    { id: 'materials', label: 'PDF Materials' },
     { id: 'videos', label: 'Video Lectures' },
 ]
 
@@ -40,13 +41,62 @@ function VideoPlayer({ title, youtubeUrl }) {
     )
 }
 
+function PdfMaterialPreview({ material }) {
+    const [pdfUrl, setPdfUrl] = useState('')
+    const [previewError, setPreviewError] = useState('')
+
+    useEffect(() => {
+        if (!material?.id) return undefined
+
+        let active = true
+        let objectUrl = ''
+
+        materialFileApi(material.id)
+            .then((blob) => {
+                objectUrl = URL.createObjectURL(blob)
+                if (active) {
+                    setPdfUrl(objectUrl)
+                    setPreviewError('')
+                }
+            })
+            .catch((err) => {
+                if (active) {
+                    setPdfUrl('')
+                    setPreviewError(err.message || 'Could not open this PDF')
+                }
+            })
+
+        return () => {
+            active = false
+            if (objectUrl) URL.revokeObjectURL(objectUrl)
+        }
+    }, [material])
+
+    if (!material) {
+        return <div className="class-pdf-viewer-empty">Select a PDF to preview</div>
+    }
+
+    if (previewError) {
+        return <div className="class-pdf-viewer-empty">{previewError}</div>
+    }
+
+    return pdfUrl ? (
+        <iframe className="class-pdf-viewer-frame" src={pdfUrl} title={material.title} />
+    ) : (
+        <div className="class-pdf-viewer-empty">Loading PDF...</div>
+    )
+}
+
 export function ClassDetail({
     canManageVideos = false,
+    canManageTests = false,
     classRoomId,
     classTitle = 'Online Class',
     exams = [],
+    materials = [],
     members = [],
     onBack,
+    onRequestCreateTest,
 }) {
     const [activeTab, setActiveTab] = useState('videos')
     const [videos, setVideos] = useState([])
@@ -61,6 +111,11 @@ export function ClassDetail({
     const selectedVideo = useMemo(
         () => videos.find((video) => video.id === selectedVideoId) || videos[0] || null,
         [selectedVideoId, videos],
+    )
+    const [selectedMaterialId, setSelectedMaterialId] = useState('')
+    const selectedMaterial = useMemo(
+        () => materials.find((material) => material.id === selectedMaterialId) || materials[0] || null,
+        [materials, selectedMaterialId],
     )
 
     useEffect(() => {
@@ -172,19 +227,94 @@ export function ClassDetail({
 
             {activeTab === 'members' && (
                 <div className="class-detail-panel" role="tabpanel">
-                    <div className="class-detail-placeholder">
-                        <strong>Members</strong>
-                        <span>{members.length ? `${members.length} assigned student accounts` : 'Student and teacher list placeholder'}</span>
-                    </div>
+                    {members.length === 0 ? (
+                        <div className="class-detail-placeholder">
+                            <strong>Members</strong>
+                            <span>No enrolled members yet.</span>
+                        </div>
+                    ) : (
+                        <div className="class-member-list">
+                            {members.map((member) => (
+                                <div className="class-member-row" key={member.accountId || member}>
+                                    <div className="class-member-avatar" aria-hidden="true">
+                                        {member.avatarText || String(member.displayName || member).slice(0, 2).toUpperCase()}
+                                    </div>
+                                    <div>
+                                        <strong>{member.displayName || `Account #${member}`}</strong>
+                                        <span>{member.username || 'Enrolled account'}</span>
+                                    </div>
+                                    <span className="class-member-role">
+                                        {member.role === 'Admin' ? 'Teacher' : 'Student'}
+                                    </span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
             )}
 
             {activeTab === 'exams' && (
                 <div className="class-detail-panel" role="tabpanel">
-                    <div className="class-detail-placeholder">
-                        <strong>Exams</strong>
-                        <span>{exams.length ? `${exams.length} assigned tests` : 'Assigned tests placeholder'}</span>
+                    <div className="class-exam-head">
+                        <div>
+                            <strong>Course Exams</strong>
+                            <span>{exams.length} tests</span>
+                        </div>
+                        {canManageTests && (
+                            <button className="primary-button" onClick={onRequestCreateTest} type="button">
+                                Create New Test
+                            </button>
+                        )}
                     </div>
+
+                    {exams.length === 0 ? (
+                        <div className="class-detail-placeholder">No tests created for this course yet.</div>
+                    ) : (
+                        <div className="class-exam-list">
+                            {exams.map((exam) => (
+                                <article className="class-exam-card" key={exam.id}>
+                                    <div>
+                                        <h2>{exam.testName}</h2>
+                                        <span>{exam.durationMinutes} minutes</span>
+                                    </div>
+                                    <strong>{exam.questionCount || 0} questions</strong>
+                                </article>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {activeTab === 'materials' && (
+                <div className="class-detail-panel" role="tabpanel">
+                    {materials.length === 0 ? (
+                        <div className="class-detail-placeholder">No PDF materials available.</div>
+                    ) : (
+                        <div className="class-pdf-layout">
+                            <aside className="class-pdf-sidebar" aria-label="PDF materials">
+                                <div className="class-pdf-sidebar-head">
+                                    <strong>PDF files</strong>
+                                    <span>{materials.length}</span>
+                                </div>
+                                <div className="class-pdf-list">
+                                    {materials.map((material) => (
+                                        <button
+                                            className={`class-pdf-list-item ${selectedMaterial?.id === material.id ? 'active' : ''}`}
+                                            key={material.id}
+                                            onClick={() => setSelectedMaterialId(material.id)}
+                                            type="button"
+                                        >
+                                            <strong>{material.title}</strong>
+                                            <span>{material.fileName}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </aside>
+                            <div className="class-pdf-viewer">
+                                <PdfMaterialPreview material={selectedMaterial} />
+                            </div>
+                        </div>
+                    )}
                 </div>
             )}
 

@@ -8,6 +8,7 @@ using ExamWeb.Domain.Entity.Accounts;
 using ExamWeb.Infrastructure.Security;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.IdentityModel.Tokens;
@@ -20,7 +21,12 @@ namespace ExamWeb.Server
     {
         public static void Main(string[] args)
         {
+            const long maxPdfUploadBytes = 50L * 1024 * 1024;
             var builder = WebApplication.CreateBuilder(args);
+            builder.WebHost.ConfigureKestrel(options =>
+            {
+                options.Limits.MaxRequestBodySize = maxPdfUploadBytes;
+            });
             var workspaceServerSettingsPath = Path.Combine(builder.Environment.ContentRootPath, "ExamWeb.Server");
             if (Directory.Exists(workspaceServerSettingsPath))
             {
@@ -40,6 +46,10 @@ namespace ExamWeb.Server
             builder.Logging.AddDebug();
             builder.Services.AddDataProtection()
                 .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(builder.Environment.ContentRootPath, "DataProtectionKeys")));
+            builder.Services.Configure<FormOptions>(options =>
+            {
+                options.MultipartBodyLengthLimit = maxPdfUploadBytes;
+            });
 
             builder.Services.AddControllers()
                 .AddJsonOptions(opt =>

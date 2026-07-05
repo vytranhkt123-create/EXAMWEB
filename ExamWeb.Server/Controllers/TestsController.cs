@@ -19,9 +19,11 @@ namespace ExamWeb.Server.Controllers
 
         [Authorize(Roles = "Admin,User")]
         [HttpGet]
-        public async Task<ActionResult<IReadOnlyList<TestListDto>>> GetTests(CancellationToken cancellationToken)
+        public async Task<ActionResult<IReadOnlyList<TestListDto>>> GetTests(
+            [FromQuery] string? classRoomId,
+            CancellationToken cancellationToken)
         {
-            var tests = await _testService.GetTestsAsync(cancellationToken);
+            var tests = await _testService.GetTestsAsync(classRoomId, cancellationToken);
             return Ok(tests);
         }
 

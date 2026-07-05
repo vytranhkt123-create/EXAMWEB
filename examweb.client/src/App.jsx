@@ -1089,7 +1089,7 @@ function App() {
             return false
         }
         if (file.size > MAX_PDF_FILE_SIZE) {
-            setError('Tệp PDF vượt quá giới hạn 12MB')
+            setError('Tệp PDF vượt quá giới hạn 50MB')
             return false
         }
 

@@ -140,6 +140,45 @@
     color: var(--muted);
 }
 
+.course-test-modal {
+    max-width: 520px;
+}
+
+.course-test-form {
+    display: grid;
+    gap: 14px;
+}
+
+.course-test-form label {
+    display: grid;
+    gap: 7px;
+}
+
+.course-test-form label > span {
+    color: var(--muted);
+    font-size: 0.86rem;
+    font-weight: 800;
+}
+
+.course-test-form input {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink);
+    font: inherit;
+    padding: 11px 12px;
+    width: 100%;
+}
+
+.course-test-checkbox {
+    align-items: center;
+    display: flex !important;
+    gap: 10px !important;
+}
+
+.course-test-checkbox input {
+    width: auto;
+}
+
 .class-detail-head {
     align-items: end;
     display: flex;
@@ -231,6 +270,162 @@
 .class-detail-placeholder.access-denied {
     border-color: rgba(225, 29, 72, 0.35);
     color: var(--rose);
+}
+
+.class-member-list,
+.class-exam-list {
+    display: grid;
+    gap: 10px;
+}
+
+.class-member-row,
+.class-exam-card,
+.class-exam-head {
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    display: flex;
+    gap: 12px;
+    justify-content: space-between;
+    padding: 12px;
+}
+
+.class-member-row > div:nth-child(2),
+.class-exam-card > div,
+.class-exam-head > div {
+    display: grid;
+    gap: 4px;
+    min-width: 0;
+}
+
+.class-member-row span,
+.class-exam-card span,
+.class-exam-head span {
+    color: var(--muted);
+}
+
+.class-member-avatar {
+    align-items: center;
+    background: rgba(15, 118, 110, 0.12);
+    border-radius: 999px;
+    color: var(--teal);
+    display: flex;
+    flex: 0 0 auto;
+    font-weight: 900;
+    height: 42px;
+    justify-content: center;
+    width: 42px;
+}
+
+.class-member-role {
+    background: rgba(37, 99, 235, 0.1);
+    border-radius: 999px;
+    color: var(--blue) !important;
+    flex: 0 0 auto;
+    font-size: 0.84rem;
+    font-weight: 800;
+    padding: 6px 10px;
+}
+
+.class-exam-card h2 {
+    font-size: 1rem;
+    margin: 0;
+}
+
+.class-pdf-layout {
+    align-items: stretch;
+    display: grid;
+    gap: 18px;
+    grid-template-columns: minmax(220px, 320px) minmax(0, 1fr);
+    min-height: min(720px, calc(100vh - 220px));
+}
+
+.class-pdf-sidebar,
+.class-pdf-viewer {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    min-height: 0;
+}
+
+.class-pdf-sidebar {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.class-pdf-sidebar-head {
+    align-items: center;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    flex: 0 0 auto;
+    justify-content: space-between;
+    padding: 12px;
+}
+
+.class-pdf-sidebar-head span {
+    color: var(--muted);
+    font-weight: 800;
+}
+
+.class-pdf-list {
+    display: grid;
+    flex: 1 1 auto;
+    gap: 8px;
+    max-height: calc(100vh - 260px);
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 12px;
+}
+
+.class-pdf-list-item {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink);
+    cursor: pointer;
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+    text-align: left;
+}
+
+.class-pdf-list-item.active {
+    border-color: var(--teal);
+    box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.class-pdf-list-item span {
+    color: var(--muted);
+    font-size: 0.86rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.class-pdf-viewer {
+    overflow: hidden;
+}
+
+.class-pdf-viewer-frame {
+    border: 0;
+    display: block;
+    height: 100%;
+    min-height: min(720px, calc(100vh - 220px));
+    width: 100%;
+}
+
+.class-pdf-viewer-empty {
+    align-items: center;
+    color: var(--muted);
+    display: flex;
+    height: 100%;
+    justify-content: center;
+    min-height: 360px;
+    padding: 24px;
+    text-align: center;
 }
 
 .class-video-form {
@@ -436,5 +631,20 @@
 
     .class-video-learning-layout {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .class-member-row,
+    .class-exam-card,
+    .class-exam-head {
+        align-items: start;
+        flex-direction: column;
+    }
+
+    .class-pdf-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .class-pdf-list {
+        max-height: 280px;
     }
 }

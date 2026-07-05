@@ -27,9 +27,15 @@ namespace ExamWeb.Infrastructure.Services
             _aiAssistantService = aiAssistantService;
         }
 
-        public async Task<IReadOnlyList<TestListDto>> GetTestsAsync(CancellationToken cancellationToken = default)
+        public async Task<IReadOnlyList<TestListDto>> GetTestsAsync(string? classRoomId = null, CancellationToken cancellationToken = default)
         {
             var query = _dbContext.Tests.AsNoTracking();
+
+            var cleanClassRoomId = NormalizeClassRoomId(classRoomId);
+            if (cleanClassRoomId != null)
+            {
+                query = query.Where(test => test.OnlineClassRoomId == cleanClassRoomId);
+            }
 
             if (_currentUser.IsStudent && _currentUser.AccountId.HasValue)
             {
@@ -160,12 +166,16 @@ namespace ExamWeb.Infrastructure.Services
 
         public async Task<TestDetailDto> CreateTestAsync(CreateTestRequest request, CancellationToken cancellationToken = default)
         {
-            var test = new Test(request.TestName, request.DurationMinutes, request.AllowPracticeMode);
+            var classRoomId = NormalizeClassRoomId(request.ClassRoomId);
+            await EnsureClassRoomExistsAsync(classRoomId, cancellationToken);
+
+            var test = new Test(request.TestName, request.DurationMinutes, request.AllowPracticeMode, classRoomId);
             _dbContext.Tests.Add(test);
             await _dbContext.SaveChangesAsync(cancellationToken);
-            await ReplaceAssignedStudentsAsync(test.Id, request.AssignedStudentIds, cancellationToken);
-            var assignedStudentIds = await GetAssignedStudentIdsAsync(test.Id, cancellationToken);
-            return MapDetail(test, assignedStudentIds);
+            var assignedStudentIds = await ResolveAssignedStudentIdsAsync(classRoomId, request.AssignedStudentIds, cancellationToken);
+            await ReplaceAssignedStudentsAsync(test.Id, assignedStudentIds, cancellationToken);
+            var savedAssignedStudentIds = await GetAssignedStudentIdsAsync(test.Id, cancellationToken);
+            return MapDetail(test, savedAssignedStudentIds);
         }
 
         public async Task<TestDetailDto?> UpdateTestAsync(string testId, UpdateTestRequest request, CancellationToken cancellationToken = default)
@@ -177,6 +187,12 @@ namespace ExamWeb.Infrastructure.Services
             }
 
             test.ChangeTestName(request.TestName);
+            if (request.ClassRoomId != null)
+            {
+                var classRoomId = NormalizeClassRoomId(request.ClassRoomId);
+                await EnsureClassRoomExistsAsync(classRoomId, cancellationToken);
+                test.ChangeOnlineClassRoom(classRoomId);
+            }
             test.ChangeDurationMinutes(request.DurationMinutes);
             test.ChangeAllowPracticeMode(request.AllowPracticeMode);
             test.UpdateTestSummary();
@@ -476,6 +492,50 @@ namespace ExamWeb.Infrastructure.Services
                     cancellationToken);
         }
 
+        private static string? NormalizeClassRoomId(string? classRoomId)
+        {
+            return string.IsNullOrWhiteSpace(classRoomId) ? null : classRoomId.Trim();
+        }
+
+        private async Task EnsureClassRoomExistsAsync(string? classRoomId, CancellationToken cancellationToken)
+        {
+            if (classRoomId == null)
+            {
+                return;
+            }
+
+            var exists = await _dbContext.OnlineClassRooms
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == classRoomId, cancellationToken);
+
+            if (!exists)
+            {
+                throw new DomainException("KhÃ³a há»c khÃ´ng tá»“n táº¡i");
+            }
+        }
+
+        private async Task<IReadOnlyList<int>> ResolveAssignedStudentIdsAsync(
+            string? classRoomId,
+            IReadOnlyCollection<int>? requestedStudentIds,
+            CancellationToken cancellationToken)
+        {
+            if (requestedStudentIds?.Count > 0 || classRoomId == null)
+            {
+                return (requestedStudentIds ?? Array.Empty<int>()).ToList();
+            }
+
+            return await _dbContext.ClassRoomMembers
+                .AsNoTracking()
+                .Where(member => member.RoomId == classRoomId)
+                .Join(
+                    _dbContext.Accounts.AsNoTracking().Where(account => account.Role == "User"),
+                    member => member.AccountId,
+                    account => account.Id,
+                    (member, account) => account.Id)
+                .Distinct()
+                .ToListAsync(cancellationToken);
+        }
+
         private async Task<List<int>> GetAssignedStudentIdsAsync(string testId, CancellationToken cancellationToken)
         {
             return await _dbContext.TestStudentAccesses
@@ -592,6 +652,7 @@ namespace ExamWeb.Infrastructure.Services
             {
                 Id = test.Id,
                 TestName = test.TestName,
+                ClassRoomId = test.OnlineClassRoomId,
                 DurationMinutes = test.DurationMinutes,
                 AllowPracticeMode = test.AllowPracticeMode,
                 QuestionCount = test.QuestionCount,

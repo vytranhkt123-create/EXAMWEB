@@ -4,7 +4,7 @@ namespace ExamWeb.Application.IService
 {
     public interface ITestService
     {
-        Task<IReadOnlyList<TestListDto>> GetTestsAsync(CancellationToken cancellationToken = default);
+        Task<IReadOnlyList<TestListDto>> GetTestsAsync(string? classRoomId = null, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<ExamAttemptDto>> GetAttemptsAsync(string testId, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<ScreenMonitorSessionDto>> GetScreenMonitorSessionsAsync(string testId, CancellationToken cancellationToken = default);
         Task<TestDetailDto?> GetTestAsync(string testId, CancellationToken cancellationToken = default);

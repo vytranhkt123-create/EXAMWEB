@@ -11,6 +11,7 @@ namespace ExamWeb.Infrastructure.Data.Configurations
             builder.ToTable("Test");
             builder.HasKey(x => x.Id);
             builder.Property(x => x.TestName).IsRequired().HasMaxLength(120);
+            builder.Property(x => x.OnlineClassRoomId).HasMaxLength(80);
             builder.Property(x => x.DurationMinutes).IsRequired().HasDefaultValue(30);
             builder.Property(x => x.AllowPracticeMode).IsRequired().HasDefaultValue(true);
             builder.Property(x => x.QuestionCount).IsRequired();
@@ -24,6 +25,8 @@ namespace ExamWeb.Infrastructure.Data.Configurations
 
             builder.Navigation(x => x.Questions)
                 .UsePropertyAccessMode(PropertyAccessMode.Field);
+
+            builder.HasIndex(x => x.OnlineClassRoomId);
         }
     }
 }

@@ -9,7 +9,7 @@ namespace ExamWeb.Infrastructure.Services
 {
     public class OnlineClassService : IOnlineClassService
     {
-        private const int MaxPdfBytes = 12 * 1024 * 1024;
+        private const int MaxPdfBytes = 50 * 1024 * 1024;
         private const int MaxWhiteboardDataUrlLength = 3_000_000;
         private readonly AppDbContext _dbContext;
         private readonly ICurrentUserService _currentUser;
@@ -72,7 +72,7 @@ namespace ExamWeb.Infrastructure.Services
             var (contentType, content) = ParsePdfDataUrl(request.DataUrl);
             if (content.Length > MaxPdfBytes)
             {
-                throw new DomainException("Tệp PDF vượt quá giới hạn 12MB");
+                throw new DomainException("Tệp PDF vượt quá giới hạn 50MB");
             }
 
             var material = new ClassMaterial(
@@ -632,6 +632,8 @@ namespace ExamWeb.Infrastructure.Services
                 .Select(x => new { RoomId = x.Key, Count = x.Count() })
                 .ToDictionaryAsync(x => x.RoomId, x => x.Count, cancellationToken);
 
+            var membersByRoom = await GetRoomMembersByRoomIdsAsync(roomIds, cancellationToken);
+
             var currentMemberRoomIds = _currentUser.IsAdmin
                 ? roomIds.ToHashSet()
                 : await _dbContext.ClassRoomMembers
@@ -640,38 +642,22 @@ namespace ExamWeb.Infrastructure.Services
                     .Select(x => x.RoomId)
                     .ToHashSetAsync(cancellationToken);
 
-            var memberAccountIdsByRoom = new Dictionary<string, IReadOnlyList<int>>();
-            if (_currentUser.IsAdmin)
-            {
-                var roomStudentPairs = await _dbContext.ClassRoomMembers
-                    .AsNoTracking()
-                    .Where(x => roomIds.Contains(x.RoomId))
-                    .Join(
-                        _dbContext.Accounts.AsNoTracking().Where(x => x.Role == "User"),
-                        member => member.AccountId,
-                        account => account.Id,
-                        (member, account) => new { member.RoomId, account.Id })
-                    .OrderBy(x => x.RoomId)
-                    .ThenBy(x => x.Id)
-                    .ToListAsync(cancellationToken);
-
-                memberAccountIdsByRoom = roomStudentPairs
-                    .GroupBy(x => x.RoomId)
-                    .ToDictionary(
-                        x => x.Key,
-                        x => (IReadOnlyList<int>)x.Select(item => item.Id).ToList());
-            }
-
             return rooms
                 .Select(room =>
                 {
                     memberCounts.TryGetValue(room.Id, out var memberCount);
-                    memberAccountIdsByRoom.TryGetValue(room.Id, out var memberAccountIds);
+                    membersByRoom.TryGetValue(room.Id, out var members);
+                    members ??= Array.Empty<ClassRoomMemberDto>();
+                    var memberAccountIds = members
+                        .Where(member => member.Role == "User")
+                        .Select(member => member.AccountId)
+                        .ToList();
                     return MapRoomDto(
                         room,
                         memberCount,
                         currentMemberRoomIds.Contains(room.Id),
-                        memberAccountIds ?? Array.Empty<int>());
+                        memberAccountIds,
+                        members);
                 })
                 .ToList();
         }
@@ -731,18 +717,21 @@ namespace ExamWeb.Infrastructure.Services
                         cancellationToken);
             }
 
-            IReadOnlyList<int> memberAccountIds = _currentUser.IsAdmin
-                ? await GetRoomStudentAccountIdsAsync(roomId, cancellationToken)
-                : Array.Empty<int>();
+            var members = await GetRoomMembersAsync(roomId, cancellationToken);
+            var memberAccountIds = members
+                .Where(member => member.Role == "User")
+                .Select(member => member.AccountId)
+                .ToList();
 
-            return MapRoomDto(room, memberCount, isMember, memberAccountIds);
+            return MapRoomDto(room, memberCount, isMember, memberAccountIds, members);
         }
 
         private static OnlineClassRoomDto MapRoomDto(
             OnlineClassRoom room,
             int memberCount,
             bool isMember,
-            IReadOnlyList<int> memberAccountIds)
+            IReadOnlyList<int> memberAccountIds,
+            IReadOnlyList<ClassRoomMemberDto> members)
         {
             return new OnlineClassRoomDto
             {
@@ -756,8 +745,80 @@ namespace ExamWeb.Infrastructure.Services
                 UpdatedAt = room.UpdatedAt,
                 MemberCount = memberCount,
                 IsMember = isMember,
-                MemberAccountIds = memberAccountIds
+                MemberAccountIds = memberAccountIds,
+                Members = members
             };
+        }
+
+        private async Task<IReadOnlyList<ClassRoomMemberDto>> GetRoomMembersAsync(string roomId, CancellationToken cancellationToken)
+        {
+            var membersByRoom = await GetRoomMembersByRoomIdsAsync(new[] { roomId }, cancellationToken);
+            return membersByRoom.TryGetValue(roomId, out var members)
+                ? members
+                : Array.Empty<ClassRoomMemberDto>();
+        }
+
+        private async Task<Dictionary<string, IReadOnlyList<ClassRoomMemberDto>>> GetRoomMembersByRoomIdsAsync(
+            IReadOnlyCollection<string> roomIds,
+            CancellationToken cancellationToken)
+        {
+            if (roomIds.Count == 0)
+            {
+                return new Dictionary<string, IReadOnlyList<ClassRoomMemberDto>>();
+            }
+
+            var memberRows = await _dbContext.ClassRoomMembers
+                .AsNoTracking()
+                .Where(member => roomIds.Contains(member.RoomId))
+                .Join(
+                    _dbContext.Accounts.AsNoTracking(),
+                    member => member.AccountId,
+                    account => account.Id,
+                    (member, account) => new
+                    {
+                        member.RoomId,
+                        account.Id,
+                        account.Username,
+                        account.DisplayName,
+                        account.Role,
+                        account.Grade,
+                        account.ClassName
+                    })
+                .OrderBy(x => x.RoomId)
+                .ThenBy(x => x.Role == "Admin" ? 0 : 1)
+                .ThenBy(x => x.DisplayName)
+                .ToListAsync(cancellationToken);
+
+            return memberRows
+                .GroupBy(x => x.RoomId)
+                .ToDictionary(
+                    group => group.Key,
+                    group => (IReadOnlyList<ClassRoomMemberDto>)group
+                        .Select(member => new ClassRoomMemberDto
+                        {
+                            AccountId = member.Id,
+                            Username = member.Username,
+                            DisplayName = member.DisplayName,
+                            Role = member.Role,
+                            Grade = member.Grade,
+                            ClassName = member.ClassName,
+                            AvatarText = BuildAvatarText(member.DisplayName, member.Username)
+                        })
+                        .ToList());
+        }
+
+        private static string BuildAvatarText(string? displayName, string? username)
+        {
+            var source = string.IsNullOrWhiteSpace(displayName) ? username : displayName;
+            var parts = (source ?? "?")
+                .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            if (parts.Length == 0)
+            {
+                return "?";
+            }
+
+            return string.Concat(parts.Take(2).Select(part => char.ToUpperInvariant(part[0])));
         }
 
         private async Task<IReadOnlyList<int>> GetRoomStudentAccountIdsAsync(string roomId, CancellationToken cancellationToken)

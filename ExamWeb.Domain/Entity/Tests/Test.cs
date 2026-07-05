@@ -8,6 +8,7 @@ namespace ExamWeb.Domain.Entity.Tests
         protected Test() { }
         public string Id { get; private set; } = string.Empty;
         public string TestName { get; private set; } = string.Empty;
+        public string? OnlineClassRoomId { get; private set; }
         public int DurationMinutes { get; private set; } = 30;
         public int QuestionCount { get; private set; } = 0;
         public decimal ScoreTotal { get; private set; } = 0;
@@ -17,10 +18,11 @@ namespace ExamWeb.Domain.Entity.Tests
         private readonly List<Question> _questions = new();
         public IReadOnlyCollection<Question> Questions => _questions.AsReadOnly();
 
-        public Test(string testName, int durationMinutes = 30, bool allowPracticeMode = true)
+        public Test(string testName, int durationMinutes = 30, bool allowPracticeMode = true, string? onlineClassRoomId = null)
         {
             Id = "Test_" + Guid.NewGuid().ToString("N");
             ChangeTestName(testName);
+            ChangeOnlineClassRoom(onlineClassRoomId);
             ChangeDurationMinutes(durationMinutes);
             ChangeAllowPracticeMode(allowPracticeMode);
             ChangeScoreTotal();
@@ -30,6 +32,10 @@ namespace ExamWeb.Domain.Entity.Tests
         {
             if (string.IsNullOrWhiteSpace(testName)) throw new DomainException("Tên đề thi không được bỏ trống");
             TestName = testName;
+        }
+        public void ChangeOnlineClassRoom(string? onlineClassRoomId)
+        {
+            OnlineClassRoomId = string.IsNullOrWhiteSpace(onlineClassRoomId) ? null : onlineClassRoomId.Trim();
         }
         public void ChangeDurationMinutes(int durationMinutes)
         {
