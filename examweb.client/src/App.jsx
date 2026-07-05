@@ -119,6 +119,7 @@ const ADMIN_SECTIONS = [
     { id: 'documents', label: 'Tài liệu PDF', icon: '▣' },
     { id: 'schedule', label: 'Thời khóa biểu', icon: '▦' },
     { id: 'online', label: 'Lớp học ảo', icon: '◍' },
+    { id: 'arena', label: 'Đấu trường', icon: '⚡' },
 ]
 
 const ADMIN_TEST_TABS = [
@@ -2211,7 +2212,7 @@ function AdminDashboard({
                             loading={loading}
                             tests={tests}
                             error={error}
-                            onOpenTest={openAdminTest}
+                            onOpenTest={handleOpenTest}
                         />
                     )}
 

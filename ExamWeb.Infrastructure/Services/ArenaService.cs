@@ -24,7 +24,7 @@ namespace ExamWeb.Infrastructure.Services
             var query = _dbContext.Arenas.AsNoTracking();
 
             // If not admin, only show arenas created by current user
-            if (!_currentUser.IsAdmin)
+            if (!IsCurrentUserAdmin())
             {
                 if (_currentUser.AccountId is not int accountId)
                 {
@@ -174,8 +174,14 @@ namespace ExamWeb.Infrastructure.Services
 
         private bool CanManageArena(Arena arena)
         {
-            return _currentUser.IsAdmin ||
+            return IsCurrentUserAdmin() ||
                 (_currentUser.AccountId is int accountId && arena.CreatedByAccountId == accountId);
+        }
+
+        private bool IsCurrentUserAdmin()
+        {
+            return _currentUser.IsAdmin ||
+                string.Equals(_currentUser.Role, "Admin", StringComparison.OrdinalIgnoreCase);
         }
 
         private static ArenaListDto MapToListDto(Arena arena)
