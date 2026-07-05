@@ -110,7 +110,7 @@ namespace ExamWeb.Infrastructure.Services
 
         public async Task<IReadOnlyList<ClassVideoDto>> GetClassVideosAsync(string classRoomId, CancellationToken cancellationToken = default)
         {
-            await EnsureCanAccessRoomAsync(classRoomId, cancellationToken);
+            await EnsureCanViewClassVideosAsync(classRoomId, cancellationToken);
 
             return await _dbContext.ClassVideoMaterials
                 .AsNoTracking()
@@ -809,11 +809,40 @@ namespace ExamWeb.Infrastructure.Services
             }
         }
 
-        private async Task EnsureCanAccessRoomAsync(string classRoomId, CancellationToken cancellationToken)
+        private async Task EnsureCanViewClassVideosAsync(string classRoomId, CancellationToken cancellationToken)
         {
-            if (!await CanAccessRoomAsync(classRoomId, cancellationToken))
+            if (string.IsNullOrWhiteSpace(classRoomId))
             {
-                throw new DomainException("You do not have access to this room");
+                throw new DomainException("Course not found");
+            }
+
+            var courseExists = await _dbContext.OnlineClassRooms
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == classRoomId, cancellationToken);
+
+            if (!courseExists)
+            {
+                throw new DomainException("Course not found");
+            }
+
+            if (_currentUser.IsAdmin)
+            {
+                return;
+            }
+
+            var accountId = _currentUser.AccountId;
+            if (!accountId.HasValue)
+            {
+                throw new DomainException("You are not enrolled in this course");
+            }
+
+            var isMember = await _dbContext.ClassRoomMembers
+                .AsNoTracking()
+                .AnyAsync(x => x.RoomId == classRoomId && x.AccountId == accountId.Value, cancellationToken);
+
+            if (!isMember)
+            {
+                throw new DomainException("You are not enrolled in this course");
             }
         }
 

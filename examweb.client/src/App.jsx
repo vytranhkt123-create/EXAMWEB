@@ -10,6 +10,7 @@ import { StudentArena } from './components/arena/StudentArena'
 import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConfig'
 import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi, updateTestQuestion } from './services/api'
 import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
+import { CourseWorkspace } from './components/online-class/CourseWorkspace'
 import { createExamMonitorRoomId, useExamProctoring } from './hooks/useExamProctoring'
 import { useOnlineClassSocket } from './hooks/useOnlineClassSocket'
 import { useOnlineClassWebRTC } from './hooks/useOnlineClassWebRTC'
@@ -93,6 +94,7 @@ const ADMIN_SECTIONS = [
     { id: 'dashboard', label: 'Tổng quan', icon: '◫' },
     { id: 'students', label: 'Học sinh', icon: '◉' },
     { id: 'tests', label: 'Đề thi', icon: '▤' },
+    { id: 'courses', label: 'Khóa học', icon: 'C' },
     { id: 'documents', label: 'Tài liệu PDF', icon: '▣' },
     { id: 'schedule', label: 'Thời khóa biểu', icon: '▦' },
     { id: 'online', label: 'Lớp học ảo', icon: '◍' },
@@ -1872,6 +1874,7 @@ function AdminDashboard({
                             {adminSection === 'dashboard' && 'Tổng quan'}
                             {adminSection === 'students' && 'Quản lý học sinh'}
                             {adminSection === 'tests' && 'Quản lý đề thi'}
+                            {adminSection === 'courses' && 'Khóa học video'}
                             {adminSection === 'documents' && 'Tài liệu PDF'}
                             {adminSection === 'schedule' && 'Thời khóa biểu'}
                             {adminSection === 'online' && 'Lớp học online'}
@@ -2005,6 +2008,13 @@ function AdminDashboard({
                             onAddMaterial={onAddMaterial}
                             onDeleteMaterial={onDeleteMaterial}
                             saving={saving}
+                        />
+                    )}
+
+                    {adminSection === 'courses' && (
+                        <CourseWorkspace
+                            canManage
+                            students={students}
                         />
                     )}
 
@@ -2501,6 +2511,13 @@ function StudentLearningHub({
                     Lớp học của tôi
                 </button>
                 <button
+                    className={activeTab === 'courses' ? 'active' : ''}
+                    onClick={() => setActiveTab('courses')}
+                    type="button"
+                >
+                    Khóa học video
+                </button>
+                <button
                     className={activeTab === 'schedule' ? 'active' : ''}
                     onClick={() => setActiveTab('schedule')}
                     type="button"
@@ -2528,6 +2545,8 @@ function StudentLearningHub({
                     onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
                     whiteboardSnapshots={whiteboardSnapshots}
                 />
+            ) : activeTab === 'courses' ? (
+                <CourseWorkspace />
             ) : activeTab === 'schedule' ? (
                 <StudentSchedulePanel auth={auth} />
             ) : (

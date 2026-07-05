@@ -46,14 +46,22 @@ export function ClassDetail({
     classTitle = 'Online Class',
     exams = [],
     members = [],
+    onBack,
 }) {
     const [activeTab, setActiveTab] = useState('videos')
     const [videos, setVideos] = useState([])
+    const [selectedVideoId, setSelectedVideoId] = useState('')
     const [draft, setDraft] = useState(emptyVideoDraft)
     const [loadingVideos, setLoadingVideos] = useState(false)
     const [savingVideo, setSavingVideo] = useState(false)
+    const [accessDenied, setAccessDenied] = useState(false)
     const [notice, setNotice] = useState('')
     const [error, setError] = useState('')
+
+    const selectedVideo = useMemo(
+        () => videos.find((video) => video.id === selectedVideoId) || videos[0] || null,
+        [selectedVideoId, videos],
+    )
 
     useEffect(() => {
         if (!classRoomId) return undefined
@@ -61,14 +69,31 @@ export function ClassDetail({
         let active = true
         const timer = window.setTimeout(() => {
             setLoadingVideos(true)
+            setAccessDenied(false)
             setError('')
 
             classVideosApi(classRoomId)
                 .then((data) => {
-                    if (active) setVideos(Array.isArray(data) ? data : [])
+                    if (!active) return
+
+                    const nextVideos = Array.isArray(data) ? data : []
+                    setVideos(nextVideos)
+                    setSelectedVideoId((current) =>
+                        nextVideos.some((video) => video.id === current)
+                            ? current
+                            : nextVideos[0]?.id || '',
+                    )
                 })
                 .catch((err) => {
-                    if (active) setError(err.message || 'Could not load video lectures')
+                    if (!active) return
+
+                    if (err.status === 403) {
+                        setAccessDenied(true)
+                        setError('Access Denied / You are not enrolled in this course')
+                        return
+                    }
+
+                    setError(err.message || 'Could not load video lectures')
                 })
                 .finally(() => {
                     if (active) setLoadingVideos(false)
@@ -103,6 +128,7 @@ export function ClassDetail({
                 }),
             })
             setVideos((current) => [created, ...current])
+            setSelectedVideoId(created.id)
             setDraft(emptyVideoDraft)
             setNotice('Video lecture added')
         } catch (err) {
@@ -119,7 +145,14 @@ export function ClassDetail({
                     <p className="class-detail-eyebrow">Class detail</p>
                     <h1>{classTitle}</h1>
                 </div>
-                <span className="class-detail-count">{videos.length} videos</span>
+                <div className="class-detail-actions">
+                    {onBack && (
+                        <button className="ghost-button" onClick={onBack} type="button">
+                            Course List
+                        </button>
+                    )}
+                    <span className="class-detail-count">{videos.length} videos</span>
+                </div>
             </header>
 
             <div aria-label="Class detail tabs" className="class-detail-tabs" role="tablist">
@@ -141,7 +174,7 @@ export function ClassDetail({
                 <div className="class-detail-panel" role="tabpanel">
                     <div className="class-detail-placeholder">
                         <strong>Members</strong>
-                        <span>{members.length ? `${members.length} people assigned` : 'Student and teacher list placeholder'}</span>
+                        <span>{members.length ? `${members.length} assigned student accounts` : 'Student and teacher list placeholder'}</span>
                     </div>
                 </div>
             )}
@@ -203,21 +236,42 @@ export function ClassDetail({
                         </p>
                     )}
 
-                    {loadingVideos ? (
+                    {accessDenied ? (
+                        <div className="class-detail-placeholder access-denied">
+                            <strong>Access Denied</strong>
+                            <span>You are not enrolled in this course.</span>
+                        </div>
+                    ) : loadingVideos ? (
                         <div className="class-detail-placeholder">Loading video lectures...</div>
                     ) : videos.length === 0 ? (
                         <div className="class-detail-placeholder">No video lectures yet</div>
                     ) : (
-                        <div className="class-video-list">
-                            {videos.map((video) => (
-                                <article className="class-video-card" key={video.id}>
-                                    <VideoPlayer title={video.title} youtubeUrl={video.youtubeUrl} />
-                                    <div className="class-video-copy">
-                                        <h2>{video.title}</h2>
-                                        {video.description && <p>{video.description}</p>}
-                                    </div>
-                                </article>
-                            ))}
+                        <div className="class-video-learning-layout">
+                            <div className="class-video-player-panel">
+                                {selectedVideo && (
+                                    <>
+                                        <VideoPlayer title={selectedVideo.title} youtubeUrl={selectedVideo.youtubeUrl} />
+                                        <div className="class-video-copy">
+                                            <h2>{selectedVideo.title}</h2>
+                                            {selectedVideo.description && <p>{selectedVideo.description}</p>}
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                            <div className="class-video-list" aria-label="Video lectures">
+                                {videos.map((video, index) => (
+                                    <button
+                                        className={`class-video-list-item ${selectedVideo?.id === video.id ? 'active' : ''}`}
+                                        key={video.id}
+                                        onClick={() => setSelectedVideoId(video.id)}
+                                        type="button"
+                                    >
+                                        <span>Lesson {index + 1}</span>
+                                        <strong>{video.title}</strong>
+                                        {video.description && <small>{video.description}</small>}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </div>
