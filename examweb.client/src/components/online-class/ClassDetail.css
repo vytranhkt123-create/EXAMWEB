@@ -194,6 +194,21 @@
     justify-content: flex-end;
 }
 
+.language-switcher {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+}
+
+.language-switcher button {
+    min-width: 44px;
+}
+
+.language-switcher button.active {
+    background: var(--ink);
+    color: #fff;
+}
+
 .class-detail-eyebrow {
     color: var(--teal);
     font-size: 0.78rem;
@@ -331,6 +346,15 @@
 .class-exam-card h2 {
     font-size: 1rem;
     margin: 0;
+}
+
+.class-exam-actions {
+    align-items: center;
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
 }
 
 .class-pdf-layout {
@@ -638,6 +662,10 @@
     .class-exam-head {
         align-items: start;
         flex-direction: column;
+    }
+
+    .class-exam-actions {
+        justify-content: flex-start;
     }
 
     .class-pdf-layout {

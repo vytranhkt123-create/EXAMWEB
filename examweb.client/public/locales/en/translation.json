@@ -1,0 +1,15 @@
+{
+  "login": "Log in",
+  "create_test": "Create New Test",
+  "course_workspace": "Course Workspace",
+  "course_detail": {
+    "course_list": "Course List",
+    "video_count": "{{count}} videos",
+    "tabs": {
+      "members": "Members",
+      "exams": "Exams",
+      "materials": "PDF Materials",
+      "videos": "Video Lectures"
+    }
+  }
+}

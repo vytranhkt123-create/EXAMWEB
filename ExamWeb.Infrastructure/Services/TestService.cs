@@ -41,8 +41,12 @@ namespace ExamWeb.Infrastructure.Services
             {
                 var accountId = _currentUser.AccountId.Value;
                 query = query.Where(test =>
-                    _dbContext.TestStudentAccesses.Any(access =>
-                        access.TestId == test.Id && access.AccountId == accountId));
+                    (test.OnlineClassRoomId != null &&
+                        _dbContext.ClassRoomMembers.Any(member =>
+                            member.RoomId == test.OnlineClassRoomId && member.AccountId == accountId)) ||
+                    (test.OnlineClassRoomId == null &&
+                        _dbContext.TestStudentAccesses.Any(access =>
+                            access.TestId == test.Id && access.AccountId == accountId)));
             }
 
             var tests = await query
@@ -134,10 +138,7 @@ namespace ExamWeb.Infrastructure.Services
 
         public async Task<TestTakeDto?> GetTestForTakingAsync(string testId, CancellationToken cancellationToken = default)
         {
-            if (!await HasStudentAccessAsync(testId, cancellationToken))
-            {
-                throw new DomainException("Bạn không được phép làm đề thi này");
-            }
+            await EnsureStudentAccessAsync(testId, "Bạn không được phép làm đề thi này", cancellationToken);
 
             var test = await LoadTestAsync(testId, true, cancellationToken);
             return test == null ? null : MapTake(test);
@@ -145,10 +146,7 @@ namespace ExamWeb.Infrastructure.Services
 
         public async Task<TestPracticeDto?> GetTestForPracticeAsync(string testId, CancellationToken cancellationToken = default)
         {
-            if (!await HasStudentAccessAsync(testId, cancellationToken))
-            {
-                throw new DomainException("Bạn không được phép luyện tập đề thi này");
-            }
+            await EnsureStudentAccessAsync(testId, "Bạn không được phép luyện tập đề thi này", cancellationToken);
 
             var test = await LoadTestAsync(testId, true, cancellationToken);
             if (test == null)
@@ -282,10 +280,7 @@ namespace ExamWeb.Infrastructure.Services
                 throw new DomainException("Chỉ học sinh mới được nộp bài");
             }
 
-            if (!await HasStudentAccessAsync(testId, cancellationToken))
-            {
-                throw new DomainException("Bạn không được phép nộp đề thi này");
-            }
+            await EnsureStudentAccessAsync(testId, "Bạn không được phép nộp đề thi này", cancellationToken);
 
             var account = await _dbContext.Accounts
                 .AsNoTracking()
@@ -376,10 +371,7 @@ namespace ExamWeb.Infrastructure.Services
                 throw new DomainException("Chỉ học sinh mới được sử dụng trợ giảng AI");
             }
 
-            if (!await HasStudentAccessAsync(testId, cancellationToken))
-            {
-                throw new DomainException("Bạn không được phép luyện tập đề thi này");
-            }
+            await EnsureStudentAccessAsync(testId, "Bạn không được phép luyện tập đề thi này", cancellationToken);
 
             if (string.IsNullOrWhiteSpace(selectedAnswerId))
             {
@@ -434,10 +426,7 @@ namespace ExamWeb.Infrastructure.Services
                 throw new DomainException("Chỉ học sinh mới được ghi nhận theo dõi");
             }
 
-            if (!await HasStudentAccessAsync(testId, cancellationToken))
-            {
-                throw new DomainException("Bạn không được phép theo dõi đề thi này");
-            }
+            await EnsureStudentAccessAsync(testId, "Bạn không được phép theo dõi đề thi này", cancellationToken);
 
             var account = await _dbContext.Accounts
                 .AsNoTracking()
@@ -485,11 +474,40 @@ namespace ExamWeb.Infrastructure.Services
                 return false;
             }
 
+            var test = await _dbContext.Tests
+                .AsNoTracking()
+                .Where(x => x.Id == testId)
+                .Select(x => new { x.OnlineClassRoomId })
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (test == null)
+            {
+                return false;
+            }
+
+            var accountId = _currentUser.AccountId.Value;
+            if (!string.IsNullOrWhiteSpace(test.OnlineClassRoomId))
+            {
+                return await _dbContext.ClassRoomMembers
+                    .AsNoTracking()
+                    .AnyAsync(
+                        member => member.RoomId == test.OnlineClassRoomId && member.AccountId == accountId,
+                        cancellationToken);
+            }
+
             return await _dbContext.TestStudentAccesses
                 .AsNoTracking()
                 .AnyAsync(
-                    x => x.TestId == testId && x.AccountId == _currentUser.AccountId.Value,
+                    access => access.TestId == testId && access.AccountId == accountId,
                     cancellationToken);
+        }
+
+        private async Task EnsureStudentAccessAsync(string testId, string message, CancellationToken cancellationToken)
+        {
+            if (!await HasStudentAccessAsync(testId, cancellationToken))
+            {
+                throw new ForbiddenDomainException(message);
+            }
         }
 
         private static string? NormalizeClassRoomId(string? classRoomId)
@@ -667,6 +685,7 @@ namespace ExamWeb.Infrastructure.Services
             {
                 Id = test.Id,
                 TestName = test.TestName,
+                ClassRoomId = test.OnlineClassRoomId,
                 DurationMinutes = test.DurationMinutes,
                 AllowPracticeMode = test.AllowPracticeMode,
                 QuestionCount = test.QuestionCount,

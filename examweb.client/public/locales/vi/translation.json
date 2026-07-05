@@ -1,0 +1,15 @@
+{
+  "login": "Đăng nhập",
+  "create_test": "Tạo đề mới",
+  "course_workspace": "Không gian khóa học",
+  "course_detail": {
+    "course_list": "Danh sách khóa học",
+    "video_count": "{{count}} video",
+    "tabs": {
+      "members": "Thành viên",
+      "exams": "Bài kiểm tra",
+      "materials": "Tài liệu PDF",
+      "videos": "Bài giảng video"
+    }
+  }
+}

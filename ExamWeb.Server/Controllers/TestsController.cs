@@ -60,6 +60,10 @@ namespace ExamWeb.Server.Controllers
                 var monitorEvent = await _testService.RecordScreenMonitorEventAsync(testId, request, cancellationToken);
                 return monitorEvent == null ? NotFound() : Ok(monitorEvent);
             }
+            catch (ForbiddenDomainException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+            }
             catch (DomainException ex)
             {
                 return BadRequest(new { message = ex.Message });
@@ -181,6 +185,10 @@ namespace ExamWeb.Server.Controllers
                 var result = await _testService.SubmitTestAsync(testId, request, cancellationToken);
                 return result == null ? NotFound() : Ok(result);
             }
+            catch (ForbiddenDomainException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+            }
             catch (DomainException ex)
             {
                 return BadRequest(new { message = ex.Message });
@@ -203,6 +211,10 @@ namespace ExamWeb.Server.Controllers
                     request.SelectedAnswerId,
                     cancellationToken);
                 return Ok(new ExplainQuestionResponse { Explanation = explanation });
+            }
+            catch (ForbiddenDomainException ex)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
             }
             catch (DomainException ex)
             {

@@ -205,6 +205,7 @@ function App() {
     const [newTestName, setNewTestName] = useState('')
     const [newDurationMinutes, setNewDurationMinutes] = useState(30)
     const [newAllowPracticeMode, setNewAllowPracticeMode] = useState(true)
+    const [courseTestClassRoomId, setCourseTestClassRoomId] = useState('')
     const [editTestName, setEditTestName] = useState('')
     const [editDurationMinutes, setEditDurationMinutes] = useState(30)
     const [editAllowPracticeMode, setEditAllowPracticeMode] = useState(true)
@@ -552,6 +553,7 @@ function App() {
         setAttemptHistory([])
         setScreenMonitorSessions([])
         setMaterials([])
+        setCourseTestClassRoomId('')
         setOnlineClass(initialOnlineClassState())
         setWhiteboardSnapshots([])
         setChatMessages([])
@@ -736,6 +738,7 @@ function App() {
                 method: 'POST',
                 body: JSON.stringify({
                     testName,
+                    classRoomId: courseTestClassRoomId || null,
                     durationMinutes,
                     allowPracticeMode: newAllowPracticeMode,
                     assignedStudentIds: newTestAssignedStudentIds,
@@ -745,6 +748,7 @@ function App() {
             setNewDurationMinutes(30)
             setNewAllowPracticeMode(true)
             setNewTestAssignedStudentIds([])
+            setCourseTestClassRoomId('')
             await loadTests()
             await openAdminTest(created.id, 'questions')
         } catch (err) {
@@ -788,6 +792,15 @@ function App() {
         } finally {
             setSaving(false)
         }
+    }
+
+    function openCourseTestCreator(classRoomId) {
+        setCourseTestClassRoomId(classRoomId)
+        setNewTestName('')
+        setNewDurationMinutes(30)
+        setNewAllowPracticeMode(true)
+        setNewTestAssignedStudentIds([])
+        setAdminSection('tests')
     }
 
     async function deleteTest(testId) {
@@ -1395,6 +1408,7 @@ function App() {
                 assignedStudentIds={assignedStudentIds}
                 attemptHistory={attemptHistory}
                 auth={auth}
+                courseTestClassRoomId={courseTestClassRoomId}
                 createdStudentCredentials={createdStudentCredentials}
                 editQuestionDraft={editQuestionDraft}
                 editAllowPracticeMode={editAllowPracticeMode}
@@ -1423,6 +1437,7 @@ function App() {
                 onCloseEditQuestion={closeEditQuestion}
                 onCreateStudent={createStudentAccount}
                 onCreateTest={createTest}
+                onCreateCourseTest={openCourseTestCreator}
                 onDeleteMaterial={deleteMaterial}
                 onDeleteQuestion={deleteQuestion}
                 onDeleteStudent={deleteStudentAccount}
@@ -1431,6 +1446,7 @@ function App() {
                 onImportJson={importQuestionsFromJson}
                 onLogout={handleLogout}
                 onOpenTest={openAdminTest}
+                onClearCourseTestContext={() => setCourseTestClassRoomId('')}
                 onRemoveDraftAnswer={removeDraftAnswer}
                 onRemoveEditQuestionAnswer={removeEditQuestionAnswer}
                 onSaveEditQuestion={saveEditedQuestion}
@@ -1720,6 +1736,7 @@ function StudentView({
                     chatMessages={chatMessages}
                     materials={materials}
                     onSaveWhiteboard={onSaveWhiteboard}
+                    onSelectTest={onSelectTest}
                     onSendChatMessage={onSendChatMessage}
                     onUseWhiteboardSnapshot={onUseWhiteboardSnapshot}
                     onlineClass={onlineClass}
@@ -1738,6 +1755,7 @@ function AdminDashboard({
     assignedStudentIds,
     attemptHistory,
     auth,
+    courseTestClassRoomId,
     createdStudentCredentials,
     editQuestionDraft,
     editAllowPracticeMode,
@@ -1766,6 +1784,7 @@ function AdminDashboard({
     onCloseEditQuestion,
     onCreateStudent,
     onCreateTest,
+    onCreateCourseTest,
     onDeleteMaterial,
     onDeleteQuestion,
     onDeleteStudent,
@@ -1774,6 +1793,7 @@ function AdminDashboard({
     onImportJson,
     onLogout,
     onOpenTest,
+    onClearCourseTestContext,
     onToggleTheme,
     onRemoveDraftAnswer,
     onRemoveEditQuestionAnswer,
@@ -1950,6 +1970,14 @@ function AdminDashboard({
                                 <div className="panel-title">
                                     <h2>Tạo đề mới</h2>
                                 </div>
+                                {courseTestClassRoomId && (
+                                    <div className="alert">
+                                        <span>This test will be linked to the selected course.</span>
+                                        <button className="ghost-button" onClick={onClearCourseTestContext} type="button">
+                                            Clear link
+                                        </button>
+                                    </div>
+                                )}
                                 <label htmlFor="test-name">Tên đề thi</label>
                                 <input
                                     id="test-name"
@@ -2014,6 +2042,8 @@ function AdminDashboard({
                     {adminSection === 'courses' && (
                         <CourseWorkspace
                             canManage
+                            onCreateCourseTest={onCreateCourseTest}
+                            onOpenCourseTest={onOpenTest}
                             students={students}
                         />
                     )}
@@ -2492,6 +2522,7 @@ function StudentLearningHub({
     chatMessages,
     materials,
     onSaveWhiteboard,
+    onSelectTest,
     onSendChatMessage,
     onUseWhiteboardSnapshot,
     onlineClass,
@@ -2546,7 +2577,7 @@ function StudentLearningHub({
                     whiteboardSnapshots={whiteboardSnapshots}
                 />
             ) : activeTab === 'courses' ? (
-                <CourseWorkspace />
+                <CourseWorkspace onTakeCourseTest={onSelectTest} />
             ) : activeTab === 'schedule' ? (
                 <StudentSchedulePanel auth={auth} />
             ) : (

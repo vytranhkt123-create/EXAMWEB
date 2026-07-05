@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { LanguageSwitcher } from '../LanguageSwitcher'
 import { classVideosApi, materialFileApi } from '../../services/api'
 import { getYouTubeEmbedUrl } from '../../utils/youtube'
 import './ClassDetail.css'
 
 const classTabs = [
-    { id: 'members', label: 'Members' },
-    { id: 'exams', label: 'Exams' },
-    { id: 'materials', label: 'PDF Materials' },
-    { id: 'videos', label: 'Video Lectures' },
+    { id: 'members', labelKey: 'course_detail.tabs.members' },
+    { id: 'exams', labelKey: 'course_detail.tabs.exams' },
+    { id: 'materials', labelKey: 'course_detail.tabs.materials' },
+    { id: 'videos', labelKey: 'course_detail.tabs.videos' },
 ]
 
 const emptyVideoDraft = {
@@ -96,8 +98,11 @@ export function ClassDetail({
     materials = [],
     members = [],
     onBack,
+    onOpenTest,
     onRequestCreateTest,
+    onTakeTest,
 }) {
+    const { t } = useTranslation()
     const [activeTab, setActiveTab] = useState('videos')
     const [videos, setVideos] = useState([])
     const [selectedVideoId, setSelectedVideoId] = useState('')
@@ -203,10 +208,11 @@ export function ClassDetail({
                 <div className="class-detail-actions">
                     {onBack && (
                         <button className="ghost-button" onClick={onBack} type="button">
-                            Course List
+                            {t('course_detail.course_list')}
                         </button>
                     )}
-                    <span className="class-detail-count">{videos.length} videos</span>
+                    <LanguageSwitcher />
+                    <span className="class-detail-count">{t('course_detail.video_count', { count: videos.length })}</span>
                 </div>
             </header>
 
@@ -220,7 +226,7 @@ export function ClassDetail({
                         role="tab"
                         type="button"
                     >
-                        {tab.label}
+                        {t(tab.labelKey)}
                     </button>
                 ))}
             </div>
@@ -262,7 +268,7 @@ export function ClassDetail({
                         </div>
                         {canManageTests && (
                             <button className="primary-button" onClick={onRequestCreateTest} type="button">
-                                Create New Test
+                                {t('create_test')}
                             </button>
                         )}
                     </div>
@@ -277,7 +283,18 @@ export function ClassDetail({
                                         <h2>{exam.testName}</h2>
                                         <span>{exam.durationMinutes} minutes</span>
                                     </div>
-                                    <strong>{exam.questionCount || 0} questions</strong>
+                                    <div className="class-exam-actions">
+                                        <strong>{exam.questionCount || 0} questions</strong>
+                                        {canManageTests ? (
+                                            <button className="ghost-button" onClick={() => onOpenTest?.(exam.id)} type="button">
+                                                Open Editor
+                                            </button>
+                                        ) : (
+                                            <button className="primary-button" onClick={() => onTakeTest?.(exam.id)} type="button">
+                                                Start Test
+                                            </button>
+                                        )}
+                                    </div>
                                 </article>
                             ))}
                         </div>
