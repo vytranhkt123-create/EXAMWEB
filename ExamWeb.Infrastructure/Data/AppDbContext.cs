@@ -33,6 +33,7 @@ namespace ExamWeb.Infrastructure.Data
         public DbSet<OnlineChatMessage> OnlineChatMessages { get; set; }
         public DbSet<OnlineClassRoom> OnlineClassRooms { get; set; }
         public DbSet<ClassRoomMember> ClassRoomMembers { get; set; }
+        public DbSet<ClassVideoMaterial> ClassVideoMaterials { get; set; }
         public DbSet<ClassSchedule> ClassSchedules { get; set; }
         public DbSet<ScheduleAttendance> ScheduleAttendances { get; set; }
         public DbSet<Arena> Arenas { get; set; }

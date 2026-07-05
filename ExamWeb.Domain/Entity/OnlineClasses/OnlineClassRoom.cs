@@ -16,6 +16,7 @@ namespace ExamWeb.Domain.Entity.OnlineClasses
         public DateTime? UpdatedAt { get; private set; }
 
         public ICollection<ClassRoomMember> Members { get; private set; } = new List<ClassRoomMember>();
+        public ICollection<ClassVideoMaterial> VideoMaterials { get; private set; } = new List<ClassVideoMaterial>();
 
         public OnlineClassRoom(string name, string? description, int createdByAccountId, string createdByName)
         {

@@ -7,7 +7,6 @@ import { AdminSchedulePanel } from './components/schedule/AdminSchedulePanel'
 import { StudentSchedulePanel } from './components/schedule/StudentSchedulePanel'
 import { TeacherArena } from './components/arena/TeacherArena'
 import { StudentArena } from './components/arena/StudentArena'
-import CreateArenaForm from './components/arena/CreateArenaForm'
 import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConfig'
 import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi, updateTestQuestion } from './services/api'
 import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
@@ -97,7 +96,6 @@ const ADMIN_SECTIONS = [
     { id: 'documents', label: 'Tài liệu PDF', icon: '▣' },
     { id: 'schedule', label: 'Thời khóa biểu', icon: '▦' },
     { id: 'online', label: 'Lớp học ảo', icon: '◍' },
-    { id: 'arena', label: 'Đấu trường', icon: '🏆' }, // === MỚI THÊM: Menu Đấu trường ===
 ]
 
 const ADMIN_TEST_TABS = [
@@ -218,10 +216,6 @@ function App() {
     const [fullscreenWarning, setFullscreenWarning] = useState('')
     const [isFullscreen, setIsFullscreen] = useState(false)
     const [markedQuestionIds, setMarkedQuestionIds] = useState([])
-
-    // === MỚI THÊM: State cho Arena view management ===
-    const [arenaView, setArenaView] = useState('list') // 'list', 'create', 'detail'
-    const [selectedArenaId, setSelectedArenaId] = useState(null)
 
     const [inputMethod, setInputMethod] = useState('manual')
     const [questionDraft, setQuestionDraft] = useState(initialQuestionDraft)
@@ -1417,11 +1411,6 @@ function App() {
                 newStudent={newStudent}
                 newTestAssignedStudentIds={newTestAssignedStudentIds}
                 newTestName={newTestName}
-                // === MỚI THÊM: Props cho Arena view management ===
-                arenaView={arenaView}
-                selectedArenaId={selectedArenaId}
-                setArenaView={setArenaView}
-                setSelectedArenaId={setSelectedArenaId}
                 onAddDraftAnswer={addDraftAnswer}
                 onAddEditQuestionAnswer={addEditQuestionAnswer}
                 onAddMaterial={addMaterial}
@@ -1765,11 +1754,6 @@ function AdminDashboard({
     newStudent,
     newTestAssignedStudentIds,
     newTestName,
-    // === MỚI THÊM: Props cho Arena view management ===
-    arenaView,
-    selectedArenaId,
-    setArenaView,
-    setSelectedArenaId,
     onAddDraftAnswer,
     onAddEditQuestionAnswer,
     onAddMaterial,
@@ -1831,11 +1815,6 @@ function AdminDashboard({
 
     function handleSelectSection(sectionId) {
         onSetAdminSection(sectionId)
-        // === MỚI THÊM: Reset arena view khi chuyển section ===
-        if (sectionId !== 'arena') {
-            setArenaView('list')
-            setSelectedArenaId(null)
-        }
         if (sectionId !== 'test-edit' && sectionId !== 'tests') {
             // keep adminTest when switching away from test-edit
         }
@@ -2051,63 +2030,13 @@ function AdminDashboard({
                     )}
 
                     {adminSection === 'arena' && (
-                        // === MỚI THÊM: Arena view management ===
-                        arenaView === 'list' ? (
-                            <TeacherArena
-                                auth={auth}
-                                loading={loading}
-                                tests={tests}
-                                error={error}
-                                onOpenTest={onOpenTest}
-                                onCreateArena={() => setArenaView('create')}
-                                onOpenArena={(arenaId) => {
-                                    setSelectedArenaId(arenaId)
-                                    setArenaView('detail')
-                                }}
-                            />
-                        ) : arenaView === 'create' ? (
-                            <div className="admin-content-section">
-                                <div className="section-header">
-                                    <button
-                                        className="ghost-button"
-                                        onClick={() => setArenaView('list')}
-                                        type="button"
-                                    >
-                                        ← Quay lại
-                                    </button>
-                                    <h2>Tạo Đấu Trường Mới</h2>
-                                </div>
-                                <CreateArenaForm
-                                    onSuccess={(arena) => {
-                                        setArenaView('list')
-                                        setSelectedArenaId(arena.arenaId)
-                                    }}
-                                    onCancel={() => setArenaView('list')}
-                                />
-                            </div>
-                        ) : arenaView === 'detail' && selectedArenaId ? (
-                            <div className="admin-content-section">
-                                <div className="section-header">
-                                    <button
-                                        className="ghost-button"
-                                        onClick={() => setArenaView('list')}
-                                        type="button"
-                                    >
-                                        ← Quay lại
-                                    </button>
-                                    <h2>Chi tiết Đấu Trường</h2>
-                                </div>
-                                <TeacherArena
-                                    auth={auth}
-                                    loading={loading}
-                                    tests={tests}
-                                    error={error}
-                                    onOpenTest={onOpenTest}
-                                    selectedArenaId={selectedArenaId}
-                                    onCreateArena={() => setArenaView('create')}
-                                />
-                            </div>
-                        ) : null
+                        <TeacherArena
+                            auth={auth}
+                            loading={loading}
+                            tests={tests}
+                            error={error}
+                            onOpenTest={openAdminTest}
+                        />
                     )}
 
                     {adminSection === 'test-edit' && !adminTest && (

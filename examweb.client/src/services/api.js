@@ -137,6 +137,13 @@ export function onlineClassApi(path = '', options = {}) {
     return requestJson(buildApiUrl(`/api/online-class${path}`), withAuthHeaders(options))
 }
 
+export function classVideosApi(classRoomId, path = '', options = {}) {
+    return requestJson(
+        buildApiUrl(`/api/classes/${encodeURIComponent(classRoomId)}/videos${path}`),
+        withAuthHeaders(options),
+    )
+}
+
 export function scheduleApi(path = '', options = {}) {
     return requestJson(buildApiUrl(`/api/schedules${path}`), withAuthHeaders(options))
 }

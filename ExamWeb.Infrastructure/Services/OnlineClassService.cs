@@ -108,6 +108,86 @@ namespace ExamWeb.Infrastructure.Services
             return true;
         }
 
+        public async Task<IReadOnlyList<ClassVideoDto>> GetClassVideosAsync(string classRoomId, CancellationToken cancellationToken = default)
+        {
+            await EnsureCanAccessRoomAsync(classRoomId, cancellationToken);
+
+            return await _dbContext.ClassVideoMaterials
+                .AsNoTracking()
+                .Where(x => x.ClassRoomId == classRoomId)
+                .OrderByDescending(x => x.CreatedAt)
+                .Select(x => new ClassVideoDto
+                {
+                    Id = x.Id,
+                    ClassRoomId = x.ClassRoomId,
+                    Title = x.Title,
+                    Description = x.Description,
+                    YoutubeUrl = x.YoutubeUrl,
+                    CreatedAt = x.CreatedAt
+                })
+                .ToListAsync(cancellationToken);
+        }
+
+        public async Task<ClassVideoDto> CreateClassVideoAsync(
+            string classRoomId,
+            CreateClassVideoRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            RequireAdmin();
+            await EnsureRoomExistsAsync(classRoomId, cancellationToken);
+
+            var video = new ClassVideoMaterial(
+                classRoomId,
+                request.Title,
+                request.Description,
+                request.YoutubeUrl);
+
+            _dbContext.ClassVideoMaterials.Add(video);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return MapClassVideo(video);
+        }
+
+        public async Task<ClassVideoDto?> UpdateClassVideoAsync(
+            string classRoomId,
+            string videoId,
+            CreateClassVideoRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            RequireAdmin();
+            await EnsureRoomExistsAsync(classRoomId, cancellationToken);
+
+            var video = await _dbContext.ClassVideoMaterials
+                .FirstOrDefaultAsync(x => x.Id == videoId && x.ClassRoomId == classRoomId, cancellationToken);
+
+            if (video == null)
+            {
+                return null;
+            }
+
+            video.ChangeDetails(request.Title, request.Description, request.YoutubeUrl);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return MapClassVideo(video);
+        }
+
+        public async Task<bool> DeleteClassVideoAsync(
+            string classRoomId,
+            string videoId,
+            CancellationToken cancellationToken = default)
+        {
+            RequireAdmin();
+            var video = await _dbContext.ClassVideoMaterials
+                .FirstOrDefaultAsync(x => x.Id == videoId && x.ClassRoomId == classRoomId, cancellationToken);
+
+            if (video == null)
+            {
+                return false;
+            }
+
+            _dbContext.ClassVideoMaterials.Remove(video);
+            await _dbContext.SaveChangesAsync(cancellationToken);
+            return true;
+        }
+
         public async Task<OnlineClassDto> GetOnlineClassAsync(CancellationToken cancellationToken = default)
         {
             var state = await GetOrCreateStateAsync(cancellationToken);
@@ -729,6 +809,26 @@ namespace ExamWeb.Infrastructure.Services
             }
         }
 
+        private async Task EnsureCanAccessRoomAsync(string classRoomId, CancellationToken cancellationToken)
+        {
+            if (!await CanAccessRoomAsync(classRoomId, cancellationToken))
+            {
+                throw new DomainException("You do not have access to this room");
+            }
+        }
+
+        private async Task EnsureRoomExistsAsync(string classRoomId, CancellationToken cancellationToken)
+        {
+            var exists = await _dbContext.OnlineClassRooms
+                .AsNoTracking()
+                .AnyAsync(x => x.Id == classRoomId, cancellationToken);
+
+            if (!exists)
+            {
+                throw new DomainException("Room not found");
+            }
+        }
+
         private async Task EnsureCanUseRoomToolsAsync(string roomId, CancellationToken cancellationToken)
         {
             var room = await _dbContext.OnlineClassRooms
@@ -819,6 +919,19 @@ namespace ExamWeb.Infrastructure.Services
                 CreatedByAccountId = material.CreatedByAccountId,
                 CreatedByName = material.CreatedByName,
                 CreatedAt = material.CreatedAt
+            };
+        }
+
+        private static ClassVideoDto MapClassVideo(ClassVideoMaterial video)
+        {
+            return new ClassVideoDto
+            {
+                Id = video.Id,
+                ClassRoomId = video.ClassRoomId,
+                Title = video.Title,
+                Description = video.Description,
+                YoutubeUrl = video.YoutubeUrl,
+                CreatedAt = video.CreatedAt
             };
         }
 

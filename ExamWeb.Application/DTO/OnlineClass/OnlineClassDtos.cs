@@ -30,6 +30,23 @@ namespace ExamWeb.Application.DTO.OnlineClass
         public string DataUrl { get; set; } = string.Empty;
     }
 
+    public class ClassVideoDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string ClassRoomId { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public string YoutubeUrl { get; set; } = string.Empty;
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public class CreateClassVideoRequest
+    {
+        public string Title { get; set; } = string.Empty;
+        public string? Description { get; set; }
+        public string YoutubeUrl { get; set; } = string.Empty;
+    }
+
     public class OnlineClassDto
     {
         public string Title { get; set; } = string.Empty;

@@ -9,6 +9,11 @@ namespace ExamWeb.Application.IService
         Task<MaterialDto> CreateMaterialAsync(CreateMaterialRequest request, CancellationToken cancellationToken = default);
         Task<bool> DeleteMaterialAsync(string materialId, CancellationToken cancellationToken = default);
 
+        Task<IReadOnlyList<ClassVideoDto>> GetClassVideosAsync(string classRoomId, CancellationToken cancellationToken = default);
+        Task<ClassVideoDto> CreateClassVideoAsync(string classRoomId, CreateClassVideoRequest request, CancellationToken cancellationToken = default);
+        Task<ClassVideoDto?> UpdateClassVideoAsync(string classRoomId, string videoId, CreateClassVideoRequest request, CancellationToken cancellationToken = default);
+        Task<bool> DeleteClassVideoAsync(string classRoomId, string videoId, CancellationToken cancellationToken = default);
+
         Task<OnlineClassDto> GetOnlineClassAsync(CancellationToken cancellationToken = default);
         Task<OnlineClassDto> UpdateOnlineClassAsync(UpdateOnlineClassRequest request, CancellationToken cancellationToken = default);
         Task<OnlineClassDto> SetLiveAsync(bool isLive, CancellationToken cancellationToken = default);
