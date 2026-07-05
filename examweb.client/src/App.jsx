@@ -1662,10 +1662,13 @@ function App() {
                     />
                 ) : studentTestMode === 'arena' ? (
                     <StudentArena
-                        auth={auth}
-                        onReset={resetStudentWork}
-                        studentTest={studentTest}
                         arenaRoomId={pendingTestId}
+                        auth={auth}
+                        onClose={resetStudentWork}
+                        onReset={resetStudentWork}
+                        setStudentTest={setStudentTest}
+                        setStudentTestMode={setStudentTestMode}
+                        studentTest={studentTest}
                     />
                 ) : (
                     <ExamFullscreenView
@@ -1709,6 +1712,8 @@ function App() {
                     onUseWhiteboardSnapshot={useWhiteboardSnapshot}
                     onlineClass={onlineClass}
                     onlineNotice={onlineNotice}
+                    setStudentTest={setStudentTest}
+                    setStudentTestMode={setStudentTestMode}
                     tests={tests}
                     whiteboardSnapshots={whiteboardSnapshots}
                 />
@@ -1809,6 +1814,8 @@ function StudentView({
     onUseWhiteboardSnapshot,
     onlineClass,
     onlineNotice,
+    setStudentTest,
+    setStudentTestMode,
     tests,
     whiteboardSnapshots,
 }) {
@@ -1852,8 +1859,8 @@ function StudentView({
                         className="primary-button full-width"
                         style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px' }}
                         onClick={() => {
-                            setStudentTest({ id: 'arena-placeholder', questions: [] })
-                            setStudentTestMode('arena')
+                            setStudentTest?.({ id: 'arena-placeholder', questions: [] })
+                            setStudentTestMode?.('arena')
                         }}
                         type="button"
                     >

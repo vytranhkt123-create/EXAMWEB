@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useArenaSocket } from '../../hooks/useArenaSocket'
 
-export function StudentArena({ onClose }) {
+export function StudentArena({ onClose, setStudentTest, setStudentTestMode }) {
     const [pin, setPin] = useState('')
     const [name, setName] = useState('')
     const [joined, setJoined] = useState(false)
@@ -26,6 +26,16 @@ export function StudentArena({ onClose }) {
     }
 
     const hasJoined = joined && !error
+
+    const handleClose = () => {
+        if (typeof onClose === 'function') {
+            onClose()
+            return
+        }
+
+        setStudentTest?.(null)
+        setStudentTestMode?.(null)
+    }
 
     // State 1: Join Screen
     if (!hasJoined || !roomState) {
@@ -72,8 +82,9 @@ export function StudentArena({ onClose }) {
                     </form>
 
                     <button
-                        onClick={onClose}
+                        onClick={handleClose}
                         className="mt-6 text-purple-300 hover:text-white text-sm transition"
+                        type="button"
                     >
                         Quay lại trang chủ
                     </button>
@@ -114,8 +125,9 @@ export function StudentArena({ onClose }) {
                 </div>
 
                 <button
-                    onClick={onClose}
+                    onClick={handleClose}
                     className="px-8 py-3 bg-red-600 hover:bg-red-500 rounded-xl text-lg font-bold transition shadow-lg"
+                    type="button"
                 >
                     Rời phòng thi đấu
                 </button>
