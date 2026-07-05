@@ -21,12 +21,6 @@ namespace ExamWeb.Infrastructure.Data.Migrations
                 oldMaxLength: 1000);
 
             migrationBuilder.AddColumn<string>(
-                name: "ImageUrl",
-                table: "Questions",
-                type: "nvarchar(max)",
-                nullable: true);
-
-            migrationBuilder.AddColumn<string>(
                 name: "QuestionType",
                 table: "Questions",
                 type: "nvarchar(40)",
@@ -38,10 +32,6 @@ namespace ExamWeb.Infrastructure.Data.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropColumn(
-                name: "ImageUrl",
-                table: "Questions");
-
             migrationBuilder.DropColumn(
                 name: "QuestionType",
                 table: "Questions");
