@@ -230,8 +230,9 @@ namespace ExamWeb.Infrastructure.Services
             var questionOrderIndex = test.Questions.Count == 0
                 ? 0
                 : test.Questions.Max(x => x.OrderIndex) + 1;
-            var question = test.AddQuestion(request.Content, request.Score, questionOrderIndex);
-            AddAnswers(question, request.Answers ?? new List<SaveAnswerRequest>());
+            var questionType = ParseQuestionType(request.QuestionType);
+            var question = test.AddQuestion(request.Content, request.Score, questionOrderIndex, questionType, request.ImageUrl);
+            AddAnswers(question, request.Answers ?? new List<SaveAnswerRequest>(), questionType);
             await _dbContext.SaveChangesAsync(cancellationToken);
             return MapQuestion(question);
         }
@@ -248,11 +249,13 @@ namespace ExamWeb.Infrastructure.Services
             }
 
             question.ChangeContent(request.Content);
+            question.ChangeQuestionType(ParseQuestionType(request.QuestionType));
+            question.ChangeImageUrl(request.ImageUrl);
             question.ChangeScore(request.Score);
             var existingAnswers = question.Answers.ToList();
             _dbContext.Answers.RemoveRange(existingAnswers);
             question.ClearAnswers();
-            AddAnswers(question, request.Answers ?? new List<SaveAnswerRequest>());
+            AddAnswers(question, request.Answers ?? new List<SaveAnswerRequest>(), question.QuestionType);
             test.UpdateTestSummary();
             await _dbContext.SaveChangesAsync(cancellationToken);
             return MapQuestion(question);
@@ -298,9 +301,9 @@ namespace ExamWeb.Infrastructure.Services
             }
 
             var submittedAnswers = request.Answers ?? new List<SubmitAnswerRequest>();
-            var selectedAnswerByQuestion = submittedAnswers
+            var submittedAnswerByQuestion = submittedAnswers
                 .GroupBy(x => x.QuestionId)
-                .ToDictionary(x => x.Key, x => x.Last().AnswerId);
+                .ToDictionary(x => x.Key, x => x.Last());
 
             var studentName = account.DisplayName;
 
@@ -317,10 +320,16 @@ namespace ExamWeb.Infrastructure.Services
 
             foreach (var question in test.Questions.OrderBy(x => x.OrderIndex))
             {
-                selectedAnswerByQuestion.TryGetValue(question.Id, out var selectedAnswerId);
-                var selectedAnswer = question.Answers.FirstOrDefault(x => x.Id == selectedAnswerId);
+                submittedAnswerByQuestion.TryGetValue(question.Id, out var submittedAnswer);
+                var selectedAnswerId = submittedAnswer?.AnswerId;
+                var selectedAnswerText = submittedAnswer?.AnswerText?.Trim();
                 var correctAnswer = question.Answers.FirstOrDefault(x => x.IsCorrect);
-                var isCorrect = selectedAnswer?.IsCorrect == true;
+                var selectedAnswer = question.QuestionType == QuestionType.FillInTheBlank
+                    ? null
+                    : question.Answers.FirstOrDefault(x => x.Id == selectedAnswerId);
+                var isCorrect = question.QuestionType == QuestionType.FillInTheBlank
+                    ? IsFillInAnswerCorrect(question, selectedAnswerText)
+                    : selectedAnswer?.IsCorrect == true;
                 var earned = isCorrect ? question.Score : 0;
 
                 response.Score += earned;
@@ -334,7 +343,9 @@ namespace ExamWeb.Infrastructure.Services
                     QuestionId = question.Id,
                     QuestionContent = question.Content,
                     SelectedAnswerId = selectedAnswer?.Id,
+                    SelectedAnswerText = question.QuestionType == QuestionType.FillInTheBlank ? selectedAnswerText : selectedAnswer?.Content,
                     CorrectAnswerId = correctAnswer?.Id,
+                    CorrectAnswerText = correctAnswer?.Content,
                     IsCorrect = isCorrect,
                     ScoreEarned = earned
                 });
@@ -614,10 +625,26 @@ namespace ExamWeb.Infrastructure.Services
         private static void ValidateQuestionRequest(SaveQuestionRequest request)
         {
             var answers = request.Answers ?? new List<SaveAnswerRequest>();
+            var questionType = ParseQuestionType(request.QuestionType);
 
             if (request.Score <= 0)
             {
                 throw new DomainException("Điểm câu hỏi phải lớn hơn 0");
+            }
+
+            if (request.ImageUrl?.Length > 850_000)
+            {
+                throw new DomainException("Ảnh câu hỏi quá lớn");
+            }
+
+            if (questionType == QuestionType.FillInTheBlank)
+            {
+                if (answers.Count < 1 || answers.Any(x => string.IsNullOrWhiteSpace(x.Content)))
+                {
+                    throw new DomainException("Câu điền khuyết cần ít nhất 1 đáp án đúng");
+                }
+
+                return;
             }
 
             if (answers.Count < 2)
@@ -636,14 +663,47 @@ namespace ExamWeb.Infrastructure.Services
             }
         }
 
-        private static void AddAnswers(Question question, IEnumerable<SaveAnswerRequest> answers)
+        private static void AddAnswers(Question question, IEnumerable<SaveAnswerRequest> answers, QuestionType questionType)
         {
             var answerList = answers.ToList();
             for (var index = 0; index < answerList.Count; index++)
             {
                 var answer = answerList[index];
-                question.AddAnswer(answer.Content, answer.IsCorrect, index);
+                question.AddAnswer(answer.Content, questionType == QuestionType.FillInTheBlank || answer.IsCorrect, index);
             }
+        }
+
+        private static QuestionType ParseQuestionType(string? questionType)
+        {
+            if (string.IsNullOrWhiteSpace(questionType))
+            {
+                return QuestionType.MultipleChoice;
+            }
+
+            return Enum.TryParse<QuestionType>(questionType.Trim(), true, out var parsed)
+                ? parsed
+                : throw new DomainException("Loại câu hỏi không hợp lệ");
+        }
+
+        private static bool IsFillInAnswerCorrect(Question question, string? submittedText)
+        {
+            if (string.IsNullOrWhiteSpace(submittedText))
+            {
+                return false;
+            }
+
+            var normalizedSubmittedText = NormalizeFillInAnswer(submittedText);
+            return question.Answers
+                .Where(x => x.IsCorrect)
+                .Any(x => NormalizeFillInAnswer(x.Content) == normalizedSubmittedText);
+        }
+
+        private static string NormalizeFillInAnswer(string value)
+        {
+            return string.Join(
+                    ' ',
+                    value.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries))
+                .ToLowerInvariant();
         }
 
         private static void ValidateScreenMonitorEventRequest(ScreenMonitorEventRequest request)
@@ -705,6 +765,8 @@ namespace ExamWeb.Infrastructure.Services
             {
                 Id = question.Id,
                 Content = question.Content,
+                QuestionType = question.QuestionType.ToString(),
+                ImageUrl = question.ImageUrl,
                 Score = question.Score,
                 Answers = question.Answers
                     .OrderBy(x => x.OrderIndex)
@@ -739,15 +801,19 @@ namespace ExamWeb.Infrastructure.Services
                     {
                         Id = x.Id,
                         Content = x.Content,
+                        QuestionType = x.QuestionType.ToString(),
+                        ImageUrl = x.ImageUrl,
                         Score = x.Score,
-                        Answers = x.Answers
-                            .OrderBy(a => a.OrderIndex)
-                            .Select(a => new AnswerOptionDto
-                            {
-                                Id = a.Id,
-                                Content = a.Content
-                            })
-                            .ToList()
+                        Answers = x.QuestionType == QuestionType.FillInTheBlank
+                            ? new List<AnswerOptionDto>()
+                            : x.Answers
+                                .OrderBy(a => a.OrderIndex)
+                                .Select(a => new AnswerOptionDto
+                                {
+                                    Id = a.Id,
+                                    Content = a.Content
+                                })
+                                .ToList()
                     })
                     .ToList()
             };
@@ -769,6 +835,8 @@ namespace ExamWeb.Infrastructure.Services
                     {
                         Id = x.Id,
                         Content = x.Content,
+                        QuestionType = x.QuestionType.ToString(),
+                        ImageUrl = x.ImageUrl,
                         Score = x.Score,
                         Answers = x.Answers
                             .OrderBy(a => a.OrderIndex)

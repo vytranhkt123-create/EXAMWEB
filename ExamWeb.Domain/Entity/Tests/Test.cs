@@ -55,16 +55,25 @@ namespace ExamWeb.Domain.Entity.Tests
         {
             QuestionCount = _questions.Count;
         }
-        public Question AddQuestion(string content, decimal score)
+        public Question AddQuestion(
+            string content,
+            decimal score,
+            QuestionType questionType = QuestionType.MultipleChoice,
+            string? imageUrl = null)
         {
             var orderIndex = _questions.Count == 0
                 ? 0
                 : _questions.Max(x => x.OrderIndex) + 1;
-            return AddQuestion(content, score, orderIndex);
+            return AddQuestion(content, score, orderIndex, questionType, imageUrl);
         }
-        public Question AddQuestion(string content, decimal score, int orderIndex)
+        public Question AddQuestion(
+            string content,
+            decimal score,
+            int orderIndex,
+            QuestionType questionType = QuestionType.MultipleChoice,
+            string? imageUrl = null)
         {
-            var question = new Question(Id, content, score, orderIndex);
+            var question = new Question(Id, content, score, orderIndex, questionType, imageUrl);
             _questions.Add(question);
             ChangeScoreTotal();
             ChangeQuestionCount();

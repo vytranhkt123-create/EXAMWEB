@@ -135,6 +135,14 @@
     gap: 6px;
 }
 
+.course-list-actions {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+}
+
 .course-list-card p,
 .course-list-card span {
     color: var(--muted);
@@ -549,10 +557,22 @@
     border: 1px solid var(--line);
     border-radius: 8px;
     color: var(--ink);
+    display: flex;
+    gap: 8px;
+    padding: 8px;
+    text-align: left;
+}
+
+.class-video-list-item-main {
+    background: transparent;
+    border: 0;
+    color: inherit;
     cursor: pointer;
     display: grid;
+    flex: 1 1 auto;
     gap: 5px;
-    padding: 12px;
+    min-width: 0;
+    padding: 4px;
     text-align: left;
 }
 
@@ -624,6 +644,10 @@
     .course-list-card {
         align-items: start;
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .course-list-actions {
+        justify-content: flex-start;
     }
 
     .course-workspace-head,

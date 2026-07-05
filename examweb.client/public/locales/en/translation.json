@@ -2,6 +2,13 @@
   "login": "Log in",
   "create_test": "Create New Test",
   "course_workspace": "Course Workspace",
+  "nav": {
+    "logout": "Log out",
+    "light_mode": "Light",
+    "dark_mode": "Dark",
+    "teacher": "Teacher",
+    "student": "Student"
+  },
   "course_detail": {
     "course_list": "Course List",
     "video_count": "{{count}} videos",

@@ -2938,6 +2938,87 @@ textarea:focus {
     justify-content: flex-end;
 }
 
+.global-language-row {
+    display: flex;
+    justify-content: flex-end;
+    padding: 16px 20px 0;
+    position: fixed;
+    right: 0;
+    top: 0;
+    z-index: 20;
+}
+
+.question-content {
+    display: grid;
+    gap: 12px;
+}
+
+.question-content .katex-display {
+    margin: 8px 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+}
+
+.question-image,
+.question-image-preview img {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    display: block;
+    max-height: 320px;
+    max-width: min(100%, 720px);
+    object-fit: contain;
+}
+
+.question-image-preview {
+    align-items: start;
+    display: grid;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.question-type-badge {
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 999px;
+    color: #3730a3;
+    font-size: 12px;
+    font-weight: 900;
+    padding: 7px 10px;
+    white-space: nowrap;
+}
+
+.fill-blank-input {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    color: var(--ink);
+    font: inherit;
+    min-height: 44px;
+    padding: 10px 12px;
+    width: min(100%, 560px);
+}
+
+.fill-blank-practice,
+.fill-blank-review {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.fill-blank-review {
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin-top: 12px;
+    padding: 12px;
+}
+
+.modal-badge.danger {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
 .document-admin-layout {
     display: grid;
     gap: 20px;

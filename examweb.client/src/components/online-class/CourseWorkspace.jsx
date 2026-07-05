@@ -15,6 +15,8 @@ export function CourseWorkspace({
     const [selectedCourseId, setSelectedCourseId] = useState('')
     const [courseTests, setCourseTests] = useState([])
     const [materials, setMaterials] = useState([])
+    const [pendingDeleteCourse, setPendingDeleteCourse] = useState(null)
+    const [deletingCourse, setDeletingCourse] = useState(false)
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState('')
 
@@ -82,21 +84,63 @@ export function CourseWorkspace({
         }
     }
 
+    async function handleDeleteCourse() {
+        if (!pendingDeleteCourse?.id) return
+
+        setDeletingCourse(true)
+        setError('')
+
+        try {
+            await classesApi(`/${encodeURIComponent(pendingDeleteCourse.id)}`, { method: 'DELETE' })
+            setCourses((current) => current.filter((course) => course.id !== pendingDeleteCourse.id))
+            if (selectedCourseId === pendingDeleteCourse.id) {
+                setSelectedCourseId('')
+            }
+            setPendingDeleteCourse(null)
+        } catch (err) {
+            setError(err.message || 'Could not delete course')
+        } finally {
+            setDeletingCourse(false)
+        }
+    }
+
     if (selectedCourse) {
         return (
-            <ClassDetail
-                canManageTests={canManage}
-                canManageVideos={canManage}
-                classRoomId={selectedCourse.id}
-                classTitle={selectedCourse.name}
-                exams={courseTests}
-                materials={materials}
-                members={selectedCourse.members || []}
-                onBack={() => setSelectedCourseId('')}
-                onOpenTest={canManage ? onOpenCourseTest : undefined}
-                onRequestCreateTest={handleRequestCreateTest}
-                onTakeTest={!canManage ? onTakeCourseTest : undefined}
-            />
+            <>
+                <ClassDetail
+                    canManageTests={canManage}
+                    canManageVideos={canManage}
+                    classRoomId={selectedCourse.id}
+                    classTitle={selectedCourse.name}
+                    exams={courseTests}
+                    materials={materials}
+                    members={selectedCourse.members || []}
+                    onBack={() => setSelectedCourseId('')}
+                    onOpenTest={canManage ? onOpenCourseTest : undefined}
+                    onRequestDeleteClass={canManage ? () => setPendingDeleteCourse(selectedCourse) : undefined}
+                    onRequestCreateTest={handleRequestCreateTest}
+                    onTakeTest={!canManage ? onTakeCourseTest : undefined}
+                />
+                {pendingDeleteCourse && (
+                    <div className="modal-overlay" role="presentation">
+                        <div aria-modal="true" className="modal-card" role="dialog">
+                            <span className="modal-badge danger">Delete class</span>
+                            <h2>Delete {pendingDeleteCourse.name}?</h2>
+                            <p className="modal-copy">
+                                This will remove the class, members, and course videos. This action cannot be undone.
+                            </p>
+                            <div className="modal-actions">
+                                <button className="ghost-button" disabled={deletingCourse} onClick={() => setPendingDeleteCourse(null)} type="button">
+                                    Cancel
+                                </button>
+                                <button className="delete-button" disabled={deletingCourse} onClick={handleDeleteCourse} type="button">
+                                    {deletingCourse ? 'Deleting...' : 'Delete Class'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </>
         )
     }
 
@@ -143,18 +187,48 @@ export function CourseWorkspace({
                                     <p>{course.description || 'No description'}</p>
                                     <span>{course.memberCount || 0} members</span>
                                 </div>
-                                <button
-                                    className="primary-button"
-                                    onClick={() => setSelectedCourseId(course.id)}
-                                    type="button"
-                                >
-                                    View Detail
-                                </button>
+                                <div className="course-list-actions">
+                                    {canManage && (
+                                        <button
+                                            className="delete-button outline"
+                                            onClick={() => setPendingDeleteCourse(course)}
+                                            type="button"
+                                        >
+                                            Delete
+                                        </button>
+                                    )}
+                                    <button
+                                        className="primary-button"
+                                        onClick={() => setSelectedCourseId(course.id)}
+                                        type="button"
+                                    >
+                                        View Detail
+                                    </button>
+                                </div>
                             </article>
                         ))}
                     </div>
                 )}
             </div>
+            {pendingDeleteCourse && (
+                <div className="modal-overlay" role="presentation">
+                    <div aria-modal="true" className="modal-card" role="dialog">
+                        <span className="modal-badge danger">Delete class</span>
+                        <h2>Delete {pendingDeleteCourse.name}?</h2>
+                        <p className="modal-copy">
+                            This will remove the class, members, and course videos. This action cannot be undone.
+                        </p>
+                        <div className="modal-actions">
+                            <button className="ghost-button" disabled={deletingCourse} onClick={() => setPendingDeleteCourse(null)} type="button">
+                                Cancel
+                            </button>
+                            <button className="delete-button" disabled={deletingCourse} onClick={handleDeleteCourse} type="button">
+                                {deletingCourse ? 'Deleting...' : 'Delete Class'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </section>
     )
 }

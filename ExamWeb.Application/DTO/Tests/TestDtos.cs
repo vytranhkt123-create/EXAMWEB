@@ -22,6 +22,8 @@ namespace ExamWeb.Application.DTO.Tests
     {
         public string Id { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
+        public string QuestionType { get; set; } = "MultipleChoice";
+        public string? ImageUrl { get; set; }
         public decimal Score { get; set; }
         public List<AnswerDto> Answers { get; set; } = new();
     }
@@ -59,6 +61,8 @@ namespace ExamWeb.Application.DTO.Tests
     {
         public string Id { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
+        public string QuestionType { get; set; } = "MultipleChoice";
+        public string? ImageUrl { get; set; }
         public decimal Score { get; set; }
         public List<AnswerOptionDto> Answers { get; set; } = new();
     }
@@ -67,6 +71,8 @@ namespace ExamWeb.Application.DTO.Tests
     {
         public string Id { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
+        public string QuestionType { get; set; } = "MultipleChoice";
+        public string? ImageUrl { get; set; }
         public decimal Score { get; set; }
         public List<PracticeAnswerOptionDto> Answers { get; set; } = new();
     }
@@ -107,7 +113,9 @@ namespace ExamWeb.Application.DTO.Tests
         public string QuestionId { get; set; } = string.Empty;
         public string QuestionContent { get; set; } = string.Empty;
         public string? SelectedAnswerId { get; set; }
+        public string? SelectedAnswerText { get; set; }
         public string? CorrectAnswerId { get; set; }
+        public string? CorrectAnswerText { get; set; }
         public bool IsCorrect { get; set; }
         public decimal ScoreEarned { get; set; }
     }

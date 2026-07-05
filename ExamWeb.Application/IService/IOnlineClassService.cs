@@ -33,6 +33,7 @@ namespace ExamWeb.Application.IService
         Task<AssignClassRoomMembersResultDto> AssignRoomMembersAsync(string roomId, AssignClassRoomMembersRequest request, CancellationToken cancellationToken = default);
         Task<AssignClassRoomMembersResultDto> ReplaceRoomMembersAsync(string roomId, AssignClassRoomMembersRequest request, CancellationToken cancellationToken = default);
         Task<bool> DeleteRoomAsync(string roomId, CancellationToken cancellationToken = default);
+        Task<bool> DeleteClassAsync(string classRoomId, CancellationToken cancellationToken = default);
         Task<IReadOnlyList<OnlineClassRoomDto>> GetAccessibleRoomsAsync(CancellationToken cancellationToken = default);
         Task<bool> CanAccessRoomAsync(string roomId, CancellationToken cancellationToken = default);
     }

@@ -598,6 +598,11 @@ namespace ExamWeb.Infrastructure.Services
             return true;
         }
 
+        public Task<bool> DeleteClassAsync(string classRoomId, CancellationToken cancellationToken = default)
+        {
+            return DeleteRoomAsync(classRoomId, cancellationToken);
+        }
+
         public async Task<IReadOnlyList<OnlineClassRoomDto>> GetAccessibleRoomsAsync(CancellationToken cancellationToken = default)
         {
             var accountId = _currentUser.AccountId

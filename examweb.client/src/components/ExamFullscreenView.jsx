@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { APP_NAME } from '../config/appConfig'
+import { MathText } from './MathText'
+import { QuestionContent } from './QuestionContent'
 
 export function ExamFullscreenView({
     answeredCount,
@@ -15,6 +17,7 @@ export function ExamFullscreenView({
     markedQuestionIds = [],
     monitoringMessage,
     monitoringStatus,
+    onChangeFillBlankAnswer,
     onReenterFullscreen,
     onReset,
     onSelectAnswer,
@@ -106,24 +109,34 @@ export function ExamFullscreenView({
                                         <span className="score-badge">{formatScore(question.score)} điểm</span>
                                     </div>
                                 </div>
-                                <p className="question-content">{question.content}</p>
-                                <div className="answer-grid">
-                                    {question.answers.map((answer) => (
-                                        <label
-                                            className={`answer-option ${selectedAnswers[question.id] === answer.id ? 'selected' : ''}`}
-                                            key={answer.id}
-                                        >
-                                            <input
-                                                checked={selectedAnswers[question.id] === answer.id}
-                                                disabled={isExamLocked}
-                                                name={question.id}
-                                                onChange={() => onSelectAnswer(question.id, answer.id)}
-                                                type="radio"
-                                            />
-                                            <span className="answer-text">{answer.content}</span>
-                                        </label>
-                                    ))}
-                                </div>
+                                <QuestionContent imageUrl={question.imageUrl} text={question.content} />
+                                {isFillInTheBlank(question) ? (
+                                    <input
+                                        className="fill-blank-input"
+                                        disabled={isExamLocked}
+                                        onChange={(event) => onChangeFillBlankAnswer?.(question.id, event.target.value)}
+                                        placeholder="Type your answer"
+                                        value={selectedAnswers[question.id] || ''}
+                                    />
+                                ) : (
+                                    <div className="answer-grid">
+                                        {question.answers.map((answer) => (
+                                            <label
+                                                className={`answer-option ${selectedAnswers[question.id] === answer.id ? 'selected' : ''}`}
+                                                key={answer.id}
+                                            >
+                                                <input
+                                                    checked={selectedAnswers[question.id] === answer.id}
+                                                    disabled={isExamLocked}
+                                                    name={question.id}
+                                                    onChange={() => onSelectAnswer(question.id, answer.id)}
+                                                    type="radio"
+                                                />
+                                                <span className="answer-text"><MathText text={answer.content} /></span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
                             </article>
                         ))}
                     </div>
@@ -266,7 +279,7 @@ function TestResultView({ formatDuration, formatScore, markedQuestionIds = [], r
                             <div className="question-head review-question-head">
                                 <div>
                                     <h3>Câu {originalIndex + 1}</h3>
-                                    <p className="question-content">{item.questionContent || question?.content}</p>
+                                    <QuestionContent imageUrl={question?.imageUrl} text={item.questionContent || question?.content} />
                                 </div>
                                 <div className="review-meta">
                                     {isMarked && <span className="marked-badge">Đã đánh dấu</span>}
@@ -278,7 +291,10 @@ function TestResultView({ formatDuration, formatScore, markedQuestionIds = [], r
                             </div>
 
                             {answers.length === 0 ? (
-                                <div className="empty-list">Không tìm thấy danh sách đáp án của câu hỏi này.</div>
+                                <div className="fill-blank-review">
+                                    <span>Your answer: <strong>{item.selectedAnswerText || 'No answer'}</strong></span>
+                                    <span>Accepted answer: <strong>{item.correctAnswerText || 'Not available'}</strong></span>
+                                </div>
                             ) : (
                                 <div className="answer-grid review-answer-grid">
                                     {answers.map((answer, answerIndex) => {
@@ -286,7 +302,7 @@ function TestResultView({ formatDuration, formatScore, markedQuestionIds = [], r
                                         return (
                                             <div className={`answer-option review-answer ${answerState}`} key={answer.id}>
                                                 <span className="answer-marker">{getAnswerLabel(answerIndex)}</span>
-                                                <span className="answer-text">{answer.content}</span>
+                                                <span className="answer-text"><MathText text={answer.content} /></span>
                                                 {answer.id === item.selectedAnswerId && (
                                                     <span className="answer-status">Bạn chọn</span>
                                                 )}
@@ -319,6 +335,10 @@ function getReviewAnswerState(answerId, resultItem) {
 
 function getAnswerLabel(index) {
     return String.fromCharCode(65 + index)
+}
+
+function isFillInTheBlank(question) {
+    return question?.questionType === 'FillInTheBlank'
 }
 
 function getMonitorStatusText(status) {

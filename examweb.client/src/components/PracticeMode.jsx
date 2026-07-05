@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { APP_NAME } from '../config/appConfig'
 import { explainQuestionWithAI } from '../services/api'
+import { MathText } from './MathText'
+import { QuestionContent } from './QuestionContent'
 
 const AUTO_ADVANCE_OPTIONS = [
     { label: 'Không', value: 0 },
@@ -21,6 +23,8 @@ export function PracticeMode({
     const totalQuestions = questions.length
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
     const [selectedAnswers, setSelectedAnswers] = useState({})
+    const [fillBlankDrafts, setFillBlankDrafts] = useState({})
+    const [checkedFillBlankQuestionIds, setCheckedFillBlankQuestionIds] = useState([])
     const [autoAdvanceDelaySeconds, setAutoAdvanceDelaySeconds] = useState(0)
     const [isFinished, setIsFinished] = useState(false)
     const [aiExplanation, setAiExplanation] = useState(null)
@@ -40,24 +44,30 @@ export function PracticeMode({
     }, [clearAutoAdvanceTimeout, studentTest?.id])
 
     // Bước UX: chuyển câu thì xóa giải thích AI của câu trước.
-    useEffect(() => {
+    function clearQuestionExplanation() {
         setAiExplanation(null)
         setIsExplaining(false)
         setExplainError('')
-    }, [currentQuestionIndex])
+    }
 
     const currentQuestion = questions[currentQuestionIndex]
     const selectedAnswerId = currentQuestion ? selectedAnswers[currentQuestion.id] : null
     const selectedAnswer = currentQuestion?.answers.find((answer) => answer.id === selectedAnswerId)
-    const isCurrentQuestionLocked = Boolean(selectedAnswerId)
+    const currentQuestionIsFillBlank = isFillInTheBlank(currentQuestion)
+    const isCurrentQuestionLocked = currentQuestionIsFillBlank
+        ? checkedFillBlankQuestionIds.includes(currentQuestion.id)
+        : Boolean(selectedAnswerId)
+    const isCurrentQuestionCorrect = currentQuestionIsFillBlank
+        ? isFillBlankAnswerCorrect(currentQuestion, selectedAnswerId)
+        : selectedAnswer?.isCorrect
     const isCurrentQuestionMarked = currentQuestion ? markedQuestionIds.includes(currentQuestion.id) : false
 
     const summary = useMemo(() => {
         return questions.reduce(
             (result, question) => {
                 const chosenAnswerId = selectedAnswers[question.id]
-                const chosenAnswer = question.answers.find((answer) => answer.id === chosenAnswerId)
-                if (chosenAnswer?.isCorrect) {
+                const isCorrect = isPracticeAnswerCorrect(question, chosenAnswerId)
+                if (isCorrect) {
                     result.correctCount += 1
                     result.score += Number(question.score || 0)
                 }
@@ -81,6 +91,47 @@ export function PracticeMode({
         if (autoAdvanceDelaySeconds > 0) {
             autoAdvanceTimeoutRef.current = window.setTimeout(() => {
                 autoAdvanceTimeoutRef.current = null
+                clearQuestionExplanation()
+                if (selectedQuestionIndex >= totalQuestions - 1) {
+                    setIsFinished(true)
+                    return
+                }
+
+                setCurrentQuestionIndex((current) => {
+                    if (current !== selectedQuestionIndex) return current
+                    return current + 1
+                })
+            }, autoAdvanceDelaySeconds * 1000)
+        }
+    }
+
+    function updateFillBlankDraft(value) {
+        if (!currentQuestion || isCurrentQuestionLocked || isFinished) return
+        setFillBlankDrafts((current) => ({
+            ...current,
+            [currentQuestion.id]: value,
+        }))
+    }
+
+    function checkFillBlankAnswer() {
+        if (!currentQuestion || !currentQuestionIsFillBlank || isCurrentQuestionLocked || isFinished) return
+        const answerText = (fillBlankDrafts[currentQuestion.id] || '').trim()
+        if (!answerText) return
+
+        clearAutoAdvanceTimeout()
+        const selectedQuestionIndex = currentQuestionIndex
+        setSelectedAnswers((current) => ({
+            ...current,
+            [currentQuestion.id]: answerText,
+        }))
+        setCheckedFillBlankQuestionIds((current) =>
+            current.includes(currentQuestion.id) ? current : [...current, currentQuestion.id],
+        )
+
+        if (autoAdvanceDelaySeconds > 0) {
+            autoAdvanceTimeoutRef.current = window.setTimeout(() => {
+                autoAdvanceTimeoutRef.current = null
+                clearQuestionExplanation()
                 if (selectedQuestionIndex >= totalQuestions - 1) {
                     setIsFinished(true)
                     return
@@ -103,6 +154,7 @@ export function PracticeMode({
             return
         }
 
+        clearQuestionExplanation()
         setCurrentQuestionIndex((current) => current + 1)
     }
 
@@ -129,8 +181,11 @@ export function PracticeMode({
 
     function restartPractice() {
         clearAutoAdvanceTimeout()
+        clearQuestionExplanation()
         setCurrentQuestionIndex(0)
         setSelectedAnswers({})
+        setFillBlankDrafts({})
+        setCheckedFillBlankQuestionIds([])
         setIsFinished(false)
     }
 
@@ -207,8 +262,27 @@ export function PracticeMode({
                             <span className="score-badge">{formatScore(currentQuestion.score)} điểm</span>
                         </div>
                     </div>
-                    <p className="question-content">{currentQuestion.content}</p>
+                    <QuestionContent imageUrl={currentQuestion.imageUrl} text={currentQuestion.content} />
 
+                    {currentQuestionIsFillBlank ? (
+                        <div className="fill-blank-practice">
+                            <input
+                                className="fill-blank-input"
+                                disabled={isCurrentQuestionLocked}
+                                onChange={(event) => updateFillBlankDraft(event.target.value)}
+                                placeholder="Type your answer"
+                                value={fillBlankDrafts[currentQuestion.id] || ''}
+                            />
+                            <button
+                                className="primary-button"
+                                disabled={isCurrentQuestionLocked || !(fillBlankDrafts[currentQuestion.id] || '').trim()}
+                                onClick={checkFillBlankAnswer}
+                                type="button"
+                            >
+                                Check answer
+                            </button>
+                        </div>
+                    ) : (
                     <div className="answer-grid practice-answer-grid">
                         {currentQuestion.answers.map((answer, index) => {
                             const answerState = getPracticeAnswerState(answer, selectedAnswerId)
@@ -221,7 +295,7 @@ export function PracticeMode({
                                     type="button"
                                 >
                                     <span className="answer-marker">{getAnswerLabel(index)}</span>
-                                    <span className="answer-text">{answer.content}</span>
+                                    <span className="answer-text"><MathText text={answer.content} /></span>
                                     {isCurrentQuestionLocked && answer.id === selectedAnswerId && (
                                         <span className={`answer-status ${answer.isCorrect ? 'correct-label' : ''}`}>
                                             Bạn chọn
@@ -234,19 +308,20 @@ export function PracticeMode({
                             )
                         })}
                     </div>
+                    )}
 
                     {isCurrentQuestionLocked && (
-                        <div className={`practice-feedback ${selectedAnswer?.isCorrect ? 'correct' : 'wrong'}`}>
-                            <strong>{selectedAnswer?.isCorrect ? 'Chính xác' : 'Chưa đúng'}</strong>
+                        <div className={`practice-feedback ${isCurrentQuestionCorrect ? 'correct' : 'wrong'}`}>
+                            <strong>{isCurrentQuestionCorrect ? 'Chính xác' : 'Chưa đúng'}</strong>
                             <span>
-                                {selectedAnswer?.isCorrect
+                                {isCurrentQuestionCorrect
                                     ? 'Bạn đã chọn đúng đáp án.'
                                     : 'Đáp án đúng đã được hiển thị màu xanh.'}
                             </span>
                         </div>
                     )}
 
-                    {isCurrentQuestionLocked && !selectedAnswer?.isCorrect && (
+                    {isCurrentQuestionLocked && !currentQuestionIsFillBlank && !selectedAnswer?.isCorrect && (
                         <div className="ai-explain-section">
                             <button
                                 className="ai-explain-button"
@@ -354,7 +429,7 @@ function PracticeResultView({
             value: 'correct',
             count: questions.filter((question) => {
                 const selectedAnswerId = selectedAnswers[question.id]
-                return question.answers.some((answer) => answer.id === selectedAnswerId && answer.isCorrect)
+                return isPracticeAnswerCorrect(question, selectedAnswerId)
             }).length,
         },
         {
@@ -362,7 +437,7 @@ function PracticeResultView({
             value: 'incorrect',
             count: questions.filter((question) => {
                 const selectedAnswerId = selectedAnswers[question.id]
-                return !question.answers.some((answer) => answer.id === selectedAnswerId && answer.isCorrect)
+                return !isPracticeAnswerCorrect(question, selectedAnswerId)
             }).length,
         },
         {
@@ -374,7 +449,7 @@ function PracticeResultView({
     const filteredQuestions = useMemo(() => {
         return questions.filter((question) => {
             const selectedAnswerId = selectedAnswers[question.id]
-            const isCorrect = question.answers.some((answer) => answer.id === selectedAnswerId && answer.isCorrect)
+            const isCorrect = isPracticeAnswerCorrect(question, selectedAnswerId)
 
             if (activeFilter === 'correct') return isCorrect
             if (activeFilter === 'incorrect') return !isCorrect
@@ -441,27 +516,34 @@ function PracticeResultView({
                         {filteredQuestions.map((question) => {
                             const originalIndex = questions.findIndex((item) => item.id === question.id)
                             const selectedAnswerId = selectedAnswers[question.id]
-                            const selectedAnswer = question.answers.find((answer) => answer.id === selectedAnswerId)
+                            const isCorrect = isPracticeAnswerCorrect(question, selectedAnswerId)
                             const isMarked = markedQuestionSet.has(question.id)
 
                             return (
                                 <article
-                                    className={`question-block review-question ${selectedAnswer?.isCorrect ? 'correct' : 'incorrect'} ${isMarked ? 'marked' : ''}`}
+                                    className={`question-block review-question ${isCorrect ? 'correct' : 'incorrect'} ${isMarked ? 'marked' : ''}`}
                                     key={question.id}
                                 >
                                     <div className="question-head review-question-head">
                                         <div>
                                             <h3>Câu {originalIndex + 1}</h3>
-                                            <p className="question-content">{question.content}</p>
+                                            <QuestionContent imageUrl={question.imageUrl} text={question.content} />
                                         </div>
                                         <div className="review-meta">
                                             {isMarked && <span className="marked-badge">Đã đánh dấu</span>}
                                             <div className="review-score">
                                                 <span>Điểm đạt</span>
-                                                <strong>{formatScore(selectedAnswer?.isCorrect ? question.score : 0)}</strong>
+                                                <strong>{formatScore(isCorrect ? question.score : 0)}</strong>
                                             </div>
                                         </div>
                                     </div>
+
+                                    {isFillInTheBlank(question) && (
+                                        <div className="fill-blank-review">
+                                            <span>Your answer: <strong>{selectedAnswerId || 'No answer'}</strong></span>
+                                            <span>Accepted answer: <strong>{question.answers.find((answer) => answer.isCorrect)?.content || 'Not available'}</strong></span>
+                                        </div>
+                                    )}
 
                                     <div className="answer-grid review-answer-grid">
                                         {question.answers.map((answer, answerIndex) => (
@@ -470,7 +552,7 @@ function PracticeResultView({
                                                 key={answer.id}
                                             >
                                                 <span className="answer-marker">{getAnswerLabel(answerIndex)}</span>
-                                                <span className="answer-text">{answer.content}</span>
+                                                <span className="answer-text"><MathText text={answer.content} /></span>
                                                 {answer.id === selectedAnswerId && (
                                                     <span className="answer-status">Bạn chọn</span>
                                                 )}
@@ -509,6 +591,36 @@ function getPracticeAnswerState(answer, selectedAnswerId) {
     if (answer.isCorrect) return 'correct-answer'
     if (answer.id === selectedAnswerId) return 'wrong-answer'
     return ''
+}
+
+function isPracticeAnswerCorrect(question, selectedValue) {
+    if (isFillInTheBlank(question)) {
+        return isFillBlankAnswerCorrect(question, selectedValue)
+    }
+
+    return question.answers.some((answer) => answer.id === selectedValue && answer.isCorrect)
+}
+
+function isFillInTheBlank(question) {
+    return question?.questionType === 'FillInTheBlank'
+}
+
+function isFillBlankAnswerCorrect(question, value) {
+    if (!value || !question?.answers?.length) return false
+
+    const normalizedValue = normalizeFillBlankAnswer(value)
+    return question.answers
+        .filter((answer) => answer.isCorrect)
+        .some((answer) => normalizeFillBlankAnswer(answer.content) === normalizedValue)
+}
+
+function normalizeFillBlankAnswer(value) {
+    return String(value || '')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
 }
 
 function getAnswerLabel(index) {

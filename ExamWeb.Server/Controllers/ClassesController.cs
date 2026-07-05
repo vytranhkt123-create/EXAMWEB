@@ -81,5 +81,20 @@ namespace ExamWeb.Server.Controllers
                 return BadRequest(new { message = ex.Message });
             }
         }
+
+        [Authorize(Roles = "Admin")]
+        [HttpDelete("{classRoomId}")]
+        public async Task<IActionResult> DeleteClass(string classRoomId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var deleted = await _onlineClassService.DeleteClassAsync(classRoomId, cancellationToken);
+                return deleted ? NoContent() : NotFound();
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
     }
 }

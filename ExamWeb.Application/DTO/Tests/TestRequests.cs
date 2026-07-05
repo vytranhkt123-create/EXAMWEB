@@ -21,6 +21,8 @@ namespace ExamWeb.Application.DTO.Tests
     public class SaveQuestionRequest
     {
         public string Content { get; set; } = string.Empty;
+        public string QuestionType { get; set; } = "MultipleChoice";
+        public string? ImageUrl { get; set; }
         public decimal Score { get; set; } = 1;
         public List<SaveAnswerRequest> Answers { get; set; } = new();
     }
@@ -42,7 +44,8 @@ namespace ExamWeb.Application.DTO.Tests
     public class SubmitAnswerRequest
     {
         public string QuestionId { get; set; } = string.Empty;
-        public string AnswerId { get; set; } = string.Empty;
+        public string? AnswerId { get; set; }
+        public string? AnswerText { get; set; }
     }
 
     public class ScreenMonitorEventRequest

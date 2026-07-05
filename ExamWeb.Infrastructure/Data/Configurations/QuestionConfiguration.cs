@@ -11,7 +11,13 @@ namespace ExamWeb.Infrastructure.Data.Configurations
             builder.ToTable("Questions");
             builder.HasKey(x => x.Id);
             builder.Property(x => x.TestId).IsRequired();
-            builder.Property(x => x.Content).IsRequired().HasMaxLength(1000);
+            builder.Property(x => x.Content).IsRequired().HasMaxLength(2000);
+            builder.Property(x => x.QuestionType)
+                .HasConversion<string>()
+                .IsRequired()
+                .HasMaxLength(40)
+                .HasDefaultValue(QuestionType.MultipleChoice);
+            builder.Property(x => x.ImageUrl).HasColumnType("nvarchar(max)");
             builder.Property(x => x.Score).HasPrecision(10, 2).IsRequired();
             builder.Property(x => x.OrderIndex).IsRequired();
 

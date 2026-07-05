@@ -2,6 +2,13 @@
   "login": "Đăng nhập",
   "create_test": "Tạo đề mới",
   "course_workspace": "Không gian khóa học",
+  "nav": {
+    "logout": "Đăng xuất",
+    "light_mode": "Giao diện sáng",
+    "dark_mode": "Giao diện tối",
+    "teacher": "Thầy giáo",
+    "student": "Học sinh"
+  },
   "course_detail": {
     "course_list": "Danh sách khóa học",
     "video_count": "{{count}} video",

@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ExamFullscreenView } from './components/ExamFullscreenView'
+import { LanguageSwitcher } from './components/LanguageSwitcher'
 import { LoginView } from './components/LoginView'
+import { MathText } from './components/MathText'
 import { PracticeMode } from './components/PracticeMode'
+import { QuestionContent } from './components/QuestionContent'
 import { TestModeDialog } from './components/TestModeDialog'
 import { AdminSchedulePanel } from './components/schedule/AdminSchedulePanel'
 import { StudentSchedulePanel } from './components/schedule/StudentSchedulePanel'
@@ -29,6 +33,8 @@ const initialNewStudent = () => ({
 
 const initialQuestionDraft = () => ({
     content: '',
+    questionType: 'MultipleChoice',
+    imageUrl: '',
     score: 1,
     answers: [
         { content: '', isCorrect: true },
@@ -39,6 +45,7 @@ const initialQuestionDraft = () => ({
 })
 
 function createQuestionEditDraft(question) {
+    const questionType = question?.questionType || 'MultipleChoice'
     const answers = Array.isArray(question?.answers)
         ? question.answers.map((answer) => ({
             id: answer.id,
@@ -47,30 +54,44 @@ function createQuestionEditDraft(question) {
         }))
         : []
 
-    while (answers.length < 2) {
+    while (answers.length < (questionType === 'FillInTheBlank' ? 1 : 2)) {
         answers.push({ content: '', isCorrect: false })
     }
 
     const correctIndex = answers.findIndex((answer) => answer.isCorrect)
     return {
         content: question?.content || '',
+        questionType,
+        imageUrl: question?.imageUrl || '',
         score: question?.score || 1,
-        answers: answers.map((answer, index) => ({
-            ...answer,
-            isCorrect: correctIndex === -1 ? index === 0 : index === correctIndex,
-        })),
+        answers: questionType === 'FillInTheBlank'
+            ? answers.map((answer) => ({ ...answer, isCorrect: true }))
+            : answers.map((answer, index) => ({
+                ...answer,
+                isCorrect: correctIndex === -1 ? index === 0 : index === correctIndex,
+            })),
     }
 }
 
 function buildQuestionPayload(draft) {
     return {
         content: draft.content.trim(),
+        questionType: draft.questionType || 'MultipleChoice',
+        imageUrl: draft.imageUrl || null,
         score: Number(draft.score),
         answers: draft.answers.map((answer) => ({
             content: answer.content.trim(),
-            isCorrect: answer.isCorrect,
+            isCorrect: draft.questionType === 'FillInTheBlank' || answer.isCorrect,
         })),
     }
+}
+
+function isFillInTheBlank(questionOrDraft) {
+    return questionOrDraft?.questionType === 'FillInTheBlank'
+}
+
+function hasAnswerValue(value) {
+    return typeof value === 'string' ? value.trim().length > 0 : Boolean(value)
 }
 
 function summarizeTestQuestions(test, questions) {
@@ -241,6 +262,7 @@ function App() {
     const submittingRef = useRef(false)
     const examShellRef = useRef(null)
     const mode = getModeForSession(auth)
+    const { t } = useTranslation()
 
     const {
         message: monitoringMessage,
@@ -267,7 +289,7 @@ function App() {
 
     const answeredCount = useMemo(() => {
         if (!studentTest || studentTestMode !== 'exam') return 0
-        return studentTest.questions.filter((question) => selectedAnswers[question.id]).length
+        return studentTest.questions.filter((question) => hasAnswerValue(selectedAnswers[question.id])).length
     }, [selectedAnswers, studentTest, studentTestMode])
 
     const isExamRunning = Boolean(studentTestMode === 'exam' && studentTest && !submitResult && studentTest.questions.length > 0)
@@ -393,10 +415,13 @@ function App() {
                     monitoringSessionId: monitoringSessionId || null,
                     durationSeconds,
                     isTimeExpired,
-                    answers: Object.entries(selectedAnswers).map(([questionId, answerId]) => ({
-                        questionId,
-                        answerId,
-                    })),
+                    answers: studentTest.questions
+                        .filter((question) => hasAnswerValue(selectedAnswers[question.id]))
+                        .map((question) => ({
+                            questionId: question.id,
+                            answerId: isFillInTheBlank(question) ? null : selectedAnswers[question.id],
+                            answerText: isFillInTheBlank(question) ? selectedAnswers[question.id] : null,
+                        })),
                 }),
             })
             // Lưu response nộp bài để chuyển sang giao diện xem kết quả.
@@ -871,13 +896,16 @@ function App() {
 
         try {
             for (const question of parsedData) {
+                const questionType = question.questionType || 'MultipleChoice'
                 const payload = {
                     content: String(question.content || '').trim(),
+                    questionType,
+                    imageUrl: question.imageUrl || null,
                     score: Number(question.score) || 1,
                     answers: Array.isArray(question.answers)
                         ? question.answers.map((answer) => ({
                             content: String(answer.content || '').trim(),
-                            isCorrect: Boolean(answer.isCorrect),
+                            isCorrect: questionType === 'FillInTheBlank' || Boolean(answer.isCorrect),
                         }))
                         : [],
                 }
@@ -949,17 +977,51 @@ function App() {
         })
     }
 
+    function updateEditQuestionDraftType(questionType) {
+        setEditQuestionDraft((current) => {
+            const nextAnswers = current.answers.length > 0
+                ? current.answers
+                : [{ content: '', isCorrect: true }]
+
+            if (questionType === 'FillInTheBlank') {
+                return {
+                    ...current,
+                    questionType,
+                    answers: nextAnswers.map((answer) => ({ ...answer, isCorrect: true })),
+                }
+            }
+
+            const answers = nextAnswers.length >= 2
+                ? nextAnswers
+                : [...nextAnswers, { content: '', isCorrect: false }]
+            const correctIndex = answers.findIndex((item) => item.isCorrect)
+
+            return {
+                ...current,
+                questionType,
+                answers: answers.map((answer, index) => ({
+                    ...answer,
+                    isCorrect: correctIndex === -1 ? index === 0 : index === correctIndex,
+                })),
+            }
+        })
+    }
+
     function addEditQuestionAnswer() {
         setEditQuestionDraft((current) => ({
             ...current,
-            answers: [...current.answers, { content: '', isCorrect: false }],
+            answers: [...current.answers, { content: '', isCorrect: isFillInTheBlank(current) }],
         }))
     }
 
     function removeEditQuestionAnswer(index) {
         setEditQuestionDraft((current) => {
-            if (current.answers.length <= 2) return current
+            const minimumAnswers = isFillInTheBlank(current) ? 1 : 2
+            if (current.answers.length <= minimumAnswers) return current
             const answers = current.answers.filter((_, answerIndex) => answerIndex !== index)
+            if (isFillInTheBlank(current)) {
+                return { ...current, answers: answers.map((answer) => ({ ...answer, isCorrect: true })) }
+            }
             if (!answers.some((answer) => answer.isCorrect)) {
                 answers[0] = { ...answers[0], isCorrect: true }
             }
@@ -1357,22 +1419,83 @@ function App() {
         })
     }
 
+    function updateQuestionDraftType(questionType) {
+        setQuestionDraft((current) => {
+            const nextAnswers = current.answers.length > 0
+                ? current.answers
+                : [{ content: '', isCorrect: true }]
+
+            if (questionType === 'FillInTheBlank') {
+                return {
+                    ...current,
+                    questionType,
+                    answers: nextAnswers.slice(0, Math.max(1, nextAnswers.length)).map((answer) => ({
+                        ...answer,
+                        isCorrect: true,
+                    })),
+                }
+            }
+
+            const answers = nextAnswers.length >= 2
+                ? nextAnswers
+                : [...nextAnswers, { content: '', isCorrect: false }]
+
+            const correctIndex = answers.findIndex((item) => item.isCorrect)
+
+            return {
+                ...current,
+                questionType,
+                answers: answers.map((answer, index) => ({
+                    ...answer,
+                    isCorrect: correctIndex === -1 ? index === 0 : index === correctIndex,
+                })),
+            }
+        })
+    }
+
+    async function handleQuestionImageChange(file, setter) {
+        if (!file) return
+
+        setError('')
+        try {
+            const imageUrl = await compressImageFile(file, { maxBytes: 720_000, maxSize: 1400 })
+            setter((current) => ({ ...current, imageUrl }))
+        } catch (err) {
+            setError(err.message || 'Could not process question image')
+        }
+    }
+
     function addDraftAnswer() {
         setQuestionDraft((current) => ({
             ...current,
-            answers: [...current.answers, { content: '', isCorrect: false }],
+            answers: [
+                ...current.answers,
+                { content: '', isCorrect: isFillInTheBlank(current) },
+            ],
         }))
     }
 
     function removeDraftAnswer(index) {
         setQuestionDraft((current) => {
-            if (current.answers.length <= 2) return current
+            const minimumAnswers = isFillInTheBlank(current) ? 1 : 2
+            if (current.answers.length <= minimumAnswers) return current
             const answers = current.answers.filter((_, answerIndex) => answerIndex !== index)
+            if (isFillInTheBlank(current)) {
+                return { ...current, answers: answers.map((answer) => ({ ...answer, isCorrect: true })) }
+            }
             if (!answers.some((answer) => answer.isCorrect)) {
                 answers[0] = { ...answers[0], isCorrect: true }
             }
             return { ...current, answers }
         })
+    }
+
+    function updateFillBlankAnswer(questionId, value) {
+        if (isExamLocked) return
+        setSelectedAnswers((current) => ({
+            ...current,
+            [questionId]: value,
+        }))
     }
 
     function selectAnswer(questionId, answerId) {
@@ -1394,6 +1517,9 @@ function App() {
     if (!auth) {
         return (
             <div className={`app-shell auth-shell theme-${theme}`}>
+                <div className="global-language-row">
+                    <LanguageSwitcher />
+                </div>
                 <LoginView error={error} loading={authLoading} onLogin={handleLogin} />
             </div>
         )
@@ -1447,6 +1573,7 @@ function App() {
                 onLogout={handleLogout}
                 onOpenTest={openAdminTest}
                 onClearCourseTestContext={() => setCourseTestClassRoomId('')}
+                onQuestionImageChange={handleQuestionImageChange}
                 onRemoveDraftAnswer={removeDraftAnswer}
                 onRemoveEditQuestionAnswer={removeEditQuestionAnswer}
                 onSaveEditQuestion={saveEditedQuestion}
@@ -1455,6 +1582,8 @@ function App() {
                 onSetAdminSection={setAdminSection}
                 onSetAdminTestTab={setAdminTestTab}
                 onSetInputMethod={setInputMethod}
+                onSetQuestionType={updateQuestionDraftType}
+                onSetEditQuestionType={updateEditQuestionDraftType}
                 onStartEditQuestion={startEditQuestion}
                 onToggleOnlineLive={toggleOnlineClassLive}
                 onToggleAssignedStudent={toggleAssignedStudent}
@@ -1507,11 +1636,12 @@ function App() {
                             <small>{auth.username}</small>
                         </div>
                         <button className="ghost-button logout-button" onClick={handleLogout} type="button">
-                            Đăng xuất
+                            {t('nav.logout')}
                         </button>
                         <button className="ghost-button logout-button" onClick={toggleTheme} type="button">
-                            {theme === 'dark' ? 'Giao diện sáng' : 'Giao diện tối'}
+                            {theme === 'dark' ? t('nav.light_mode') : t('nav.dark_mode')}
                         </button>
+                        <LanguageSwitcher />
                     </div>
                 </header>
             )}
@@ -1555,6 +1685,7 @@ function App() {
                         onReenterFullscreen={() => enterExamFullscreen(examShellRef.current)}
                         onReset={resetStudentWork}
                         onRestartScreenShare={restartScreenMonitoring}
+                        onChangeFillBlankAnswer={updateFillBlankAnswer}
                         onSelectAnswer={selectAnswer}
                         onSubmit={handleSubmitClick}
                         onToggleQuestionMark={toggleQuestionMark}
@@ -1794,6 +1925,7 @@ function AdminDashboard({
     onLogout,
     onOpenTest,
     onClearCourseTestContext,
+    onQuestionImageChange,
     onToggleTheme,
     onRemoveDraftAnswer,
     onRemoveEditQuestionAnswer,
@@ -1803,6 +1935,8 @@ function AdminDashboard({
     onSetAdminSection,
     onSetAdminTestTab,
     onSetInputMethod,
+    onSetQuestionType,
+    onSetEditQuestionType,
     onStartEditQuestion,
     onToggleOnlineLive,
     onToggleAssignedStudent,
@@ -1833,6 +1967,7 @@ function AdminDashboard({
     chatMessages,
     whiteboardSnapshots,
 }) {
+    const { t } = useTranslation()
     const totalQuestions = tests.reduce((sum, test) => sum + (test.questionCount || 0), 0)
 
     function handleSelectSection(sectionId) {
@@ -1882,7 +2017,7 @@ function AdminDashboard({
                     <strong>{auth.displayName}</strong>
                     <small>{auth.username}</small>
                     <button className="ghost-button full-width" onClick={onLogout} type="button">
-                        Đăng xuất
+                        {t('nav.logout')}
                     </button>
                 </div>
             </aside>
@@ -1904,10 +2039,11 @@ function AdminDashboard({
                         <p className="subtitle">Bảng điều khiển quản trị lớp học</p>
                     </div>
                     <div className="admin-topbar-actions">
+                        <LanguageSwitcher />
                         <button className="ghost-button" onClick={onToggleTheme} type="button">
-                            {theme === 'dark' ? 'Sáng' : 'Tối'}
+                            {theme === 'dark' ? t('nav.light_mode') : t('nav.dark_mode')}
                         </button>
-                        <span className="role-chip admin">Thầy giáo</span>
+                        <span className="role-chip admin">{t('nav.teacher')}</span>
                     </div>
                 </header>
 
@@ -2193,6 +2329,39 @@ function AdminDashboard({
                                                     rows="3"
                                                     value={questionDraft.content}
                                                 />
+                                                <p className="field-hint">Supports LaTeX: $$ E = mc^2 $$ or \(\\frac&#123;1&#125;&#123;2&#125;\)</p>
+                                            </div>
+                                            <div className="form-row compact">
+                                                <label htmlFor="question-type">Question type</label>
+                                                <select
+                                                    id="question-type"
+                                                    onChange={(event) => onSetQuestionType(event.target.value)}
+                                                    value={questionDraft.questionType}
+                                                >
+                                                    <option value="MultipleChoice">Multiple choice</option>
+                                                    <option value="FillInTheBlank">Fill in the blank</option>
+                                                </select>
+                                            </div>
+                                            <div className="form-row">
+                                                <label htmlFor="question-image">Question image</label>
+                                                <input
+                                                    accept="image/*"
+                                                    id="question-image"
+                                                    onChange={(event) => onQuestionImageChange(event.target.files?.[0], setQuestionDraft)}
+                                                    type="file"
+                                                />
+                                                {questionDraft.imageUrl && (
+                                                    <div className="question-image-preview">
+                                                        <img alt="" src={questionDraft.imageUrl} />
+                                                        <button
+                                                            className="ghost-button compact-button"
+                                                            onClick={() => setQuestionDraft((current) => ({ ...current, imageUrl: '' }))}
+                                                            type="button"
+                                                        >
+                                                            Remove image
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="form-row compact">
                                                 <label htmlFor="question-score">Điểm số</label>
@@ -2211,28 +2380,34 @@ function AdminDashboard({
                                                 />
                                             </div>
                                             <div className="answer-editor">
-                                                <label>Các đáp án, chọn một đáp án đúng</label>
+                                                <label>
+                                                    {isFillInTheBlank(questionDraft)
+                                                        ? 'Accepted answers / keywords'
+                                                        : 'Các đáp án, chọn một đáp án đúng'}
+                                                </label>
                                                 {questionDraft.answers.map((answer, index) => (
                                                     <div className="answer-edit-row" key={index}>
                                                         <input
                                                             onChange={(event) =>
                                                                 onUpdateDraftAnswer(index, 'content', event.target.value)
                                                             }
-                                                            placeholder={`Đáp án ${index + 1}`}
+                                                            placeholder={isFillInTheBlank(questionDraft) ? `Accepted answer ${index + 1}` : `Đáp án ${index + 1}`}
                                                             value={answer.content}
                                                         />
-                                                        <label className="correct-toggle">
-                                                            <input
-                                                                checked={answer.isCorrect}
-                                                                name="correct-answer"
-                                                                onChange={() => onUpdateDraftAnswer(index, 'isCorrect', true)}
-                                                                type="radio"
-                                                            />
-                                                            <span>Đúng</span>
-                                                        </label>
+                                                        {!isFillInTheBlank(questionDraft) && (
+                                                            <label className="correct-toggle">
+                                                                <input
+                                                                    checked={answer.isCorrect}
+                                                                    name="correct-answer"
+                                                                    onChange={() => onUpdateDraftAnswer(index, 'isCorrect', true)}
+                                                                    type="radio"
+                                                                />
+                                                                <span>Đúng</span>
+                                                            </label>
+                                                        )}
                                                         <button
                                                             className="ghost-button icon-only"
-                                                            disabled={questionDraft.answers.length <= 2}
+                                                            disabled={questionDraft.answers.length <= (isFillInTheBlank(questionDraft) ? 1 : 2)}
                                                             onClick={() => onRemoveDraftAnswer(index)}
                                                             type="button"
                                                         >
@@ -2243,7 +2418,7 @@ function AdminDashboard({
                                             </div>
                                             <div className="action-row">
                                                 <button className="ghost-button" onClick={onAddDraftAnswer} type="button">
-                                                    Thêm đáp án
+                                                    {isFillInTheBlank(questionDraft) ? 'Add accepted answer' : 'Thêm đáp án'}
                                                 </button>
                                                 <button className="primary-button" disabled={saving} type="submit">
                                                     Lưu câu hỏi
@@ -2274,6 +2449,9 @@ function AdminDashboard({
                                                     <div className="question-head">
                                                         <h3>Câu {index + 1}</h3>
                                                         <div className="row-actions">
+                                                            <span className="question-type-badge">
+                                                                {isFillInTheBlank(question) ? 'Fill blank' : 'Multiple choice'}
+                                                            </span>
                                                             <span className="score-badge">{formatScore(question.score)} điểm</span>
                                                             <button
                                                                 className="ghost-button compact-button"
@@ -2293,14 +2471,14 @@ function AdminDashboard({
                                                             </button>
                                                         </div>
                                                     </div>
-                                                    <p className="question-content">{question.content}</p>
+                                                    <QuestionContent imageUrl={question.imageUrl} text={question.content} />
                                                     <ul className="answer-review">
                                                         {question.answers.map((answer) => (
                                                             <li className={answer.isCorrect ? 'correct' : ''} key={answer.id}>
                                                                 <span className={answer.isCorrect ? 'status-tag true' : 'status-tag false'}>
                                                                     {answer.isCorrect ? 'Đúng' : 'Sai'}
                                                                 </span>
-                                                                {answer.content}
+                                                                <MathText text={answer.content} />
                                                             </li>
                                                         ))}
                                                     </ul>
@@ -2330,6 +2508,8 @@ function AdminDashboard({
                 onRemoveAnswer={onRemoveEditQuestionAnswer}
                 onSave={onSaveEditQuestion}
                 onSetDraft={setEditQuestionDraft}
+                onSetQuestionType={onSetEditQuestionType}
+                onQuestionImageChange={onQuestionImageChange}
                 onUpdateAnswer={onUpdateEditQuestionAnswer}
                 question={editingQuestion}
                 saving={saving}
@@ -2346,6 +2526,8 @@ function QuestionEditDialog({
     onRemoveAnswer,
     onSave,
     onSetDraft,
+    onSetQuestionType,
+    onQuestionImageChange,
     onUpdateAnswer,
     question,
     saving,
@@ -2386,6 +2568,41 @@ function QuestionEditDialog({
                             rows="4"
                             value={draft.content}
                         />
+                        <p className="field-hint">Supports LaTeX: $$ E = mc^2 $$ or \(\\frac&#123;1&#125;&#123;2&#125;\)</p>
+                    </div>
+
+                    <div className="form-row compact">
+                        <label htmlFor="edit-question-type">Question type</label>
+                        <select
+                            id="edit-question-type"
+                            onChange={(event) => onSetQuestionType(event.target.value)}
+                            value={draft.questionType}
+                        >
+                            <option value="MultipleChoice">Multiple choice</option>
+                            <option value="FillInTheBlank">Fill in the blank</option>
+                        </select>
+                    </div>
+
+                    <div className="form-row">
+                        <label htmlFor="edit-question-image">Question image</label>
+                        <input
+                            accept="image/*"
+                            id="edit-question-image"
+                            onChange={(event) => onQuestionImageChange(event.target.files?.[0], onSetDraft)}
+                            type="file"
+                        />
+                        {draft.imageUrl && (
+                            <div className="question-image-preview">
+                                <img alt="" src={draft.imageUrl} />
+                                <button
+                                    className="ghost-button compact-button"
+                                    onClick={() => onSetDraft((current) => ({ ...current, imageUrl: '' }))}
+                                    type="button"
+                                >
+                                    Remove image
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     <div className="form-row compact">
@@ -2407,27 +2624,33 @@ function QuestionEditDialog({
                     </div>
 
                     <div className="answer-editor">
-                        <label>Các đáp án, chọn một đáp án đúng</label>
+                        <label>
+                            {isFillInTheBlank(draft)
+                                ? 'Accepted answers / keywords'
+                                : 'Các đáp án, chọn một đáp án đúng'}
+                        </label>
                         {draft.answers.map((answer, index) => (
                             <div className="answer-edit-row" key={answer.id || index}>
                                 <input
                                     onChange={(event) => onUpdateAnswer(index, 'content', event.target.value)}
-                                    placeholder={`Đáp án ${index + 1}`}
+                                    placeholder={isFillInTheBlank(draft) ? `Accepted answer ${index + 1}` : `Đáp án ${index + 1}`}
                                     required
                                     value={answer.content}
                                 />
-                                <label className="correct-toggle">
-                                    <input
-                                        checked={answer.isCorrect}
-                                        name={`edit-correct-answer-${question.id}`}
-                                        onChange={() => onUpdateAnswer(index, 'isCorrect', true)}
-                                        type="radio"
-                                    />
-                                    <span>Đúng</span>
-                                </label>
+                                {!isFillInTheBlank(draft) && (
+                                    <label className="correct-toggle">
+                                        <input
+                                            checked={answer.isCorrect}
+                                            name={`edit-correct-answer-${question.id}`}
+                                            onChange={() => onUpdateAnswer(index, 'isCorrect', true)}
+                                            type="radio"
+                                        />
+                                        <span>Đúng</span>
+                                    </label>
+                                )}
                                 <button
                                     className="ghost-button icon-only"
-                                    disabled={saving || draft.answers.length <= 2}
+                                    disabled={saving || draft.answers.length <= (isFillInTheBlank(draft) ? 1 : 2)}
                                     onClick={() => onRemoveAnswer(index)}
                                     type="button"
                                 >
@@ -2440,7 +2663,7 @@ function QuestionEditDialog({
 
                 <div className="modal-actions question-edit-actions">
                     <button className="ghost-button" onClick={onAddAnswer} type="button">
-                        Thêm đáp án
+                        {isFillInTheBlank(draft) ? 'Add accepted answer' : 'Thêm đáp án'}
                     </button>
                     <span className="question-edit-spacer" />
                     <button className="ghost-button" disabled={saving} onClick={onCancel} type="button">

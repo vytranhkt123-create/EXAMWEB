@@ -99,6 +99,7 @@ export function ClassDetail({
     members = [],
     onBack,
     onOpenTest,
+    onRequestDeleteClass,
     onRequestCreateTest,
     onTakeTest,
 }) {
@@ -198,6 +199,26 @@ export function ClassDetail({
         }
     }
 
+    async function handleDeleteVideo(videoId) {
+        if (!classRoomId || !videoId) return
+        if (!window.confirm('Delete this video lecture?')) return
+
+        setError('')
+        setNotice('')
+
+        try {
+            await classVideosApi(classRoomId, `/${encodeURIComponent(videoId)}`, { method: 'DELETE' })
+            const nextVideos = videos.filter((video) => video.id !== videoId)
+            setVideos(nextVideos)
+            if (selectedVideoId === videoId) {
+                setSelectedVideoId(nextVideos[0]?.id || '')
+            }
+            setNotice('Video lecture deleted')
+        } catch (err) {
+            setError(err.message || 'Could not delete video lecture')
+        }
+    }
+
     return (
         <section className="class-detail-page">
             <header className="class-detail-head">
@@ -212,6 +233,11 @@ export function ClassDetail({
                         </button>
                     )}
                     <LanguageSwitcher />
+                    {onRequestDeleteClass && (
+                        <button className="delete-button outline" onClick={onRequestDeleteClass} type="button">
+                            Delete Class
+                        </button>
+                    )}
                     <span className="class-detail-count">{t('course_detail.video_count', { count: videos.length })}</span>
                 </div>
             </header>
@@ -407,16 +433,31 @@ export function ClassDetail({
                             </div>
                             <div className="class-video-list" aria-label="Video lectures">
                                 {videos.map((video, index) => (
-                                    <button
+                                    <article
                                         className={`class-video-list-item ${selectedVideo?.id === video.id ? 'active' : ''}`}
                                         key={video.id}
-                                        onClick={() => setSelectedVideoId(video.id)}
-                                        type="button"
                                     >
-                                        <span>Lesson {index + 1}</span>
-                                        <strong>{video.title}</strong>
-                                        {video.description && <small>{video.description}</small>}
-                                    </button>
+                                        <button
+                                            className="class-video-list-item-main"
+                                            onClick={() => setSelectedVideoId(video.id)}
+                                            type="button"
+                                        >
+                                            <span>Lesson {index + 1}</span>
+                                            <strong>{video.title}</strong>
+                                            {video.description && <small>{video.description}</small>}
+                                        </button>
+                                        {canManageVideos && (
+                                            <button
+                                                aria-label={`Delete ${video.title}`}
+                                                className="delete-button icon-only"
+                                                onClick={() => handleDeleteVideo(video.id)}
+                                                title="Delete video"
+                                                type="button"
+                                            >
+                                                Trash
+                                            </button>
+                                        )}
+                                    </article>
                                 ))}
                             </div>
                         </div>

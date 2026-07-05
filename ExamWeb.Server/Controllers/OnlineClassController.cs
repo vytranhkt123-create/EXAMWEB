@@ -252,6 +252,21 @@ namespace ExamWeb.Server.Controllers
             }
         }
 
+        [Authorize(Roles = "Admin")]
+        [HttpDelete("{roomId}")]
+        public async Task<IActionResult> DeleteClass(string roomId, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var deleted = await _onlineClassService.DeleteClassAsync(roomId, cancellationToken);
+                return deleted ? NoContent() : NotFound();
+            }
+            catch (DomainException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         [HttpGet("rooms")]
         public async Task<ActionResult<IReadOnlyList<OnlineClassRoomDto>>> GetRooms(CancellationToken cancellationToken)
         {
