@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useArenaSocket } from '../../hooks/useArenaSocket'
 import { arenaApi } from '../../services/api'
 
@@ -22,19 +22,33 @@ export function TeacherArena({ testId, onClose }) {
     useEffect(() => {
         if (!testId) return
 
-        setCreatingRoom(true)
-        setApiError(null)
-        arenaApi(`/create/${encodeURIComponent(testId)}`, { method: 'POST' })
+        let cancelled = false
+
+        Promise.resolve()
+            .then(() => {
+                if (cancelled) return null
+
+                setCreatingRoom(true)
+                setApiError(null)
+                return arenaApi(`/create/${encodeURIComponent(testId)}`, { method: 'POST' })
+            })
             .then((data) => {
+                if (!data || cancelled) return
                 setRoomId(data.roomId)
             })
             .catch((err) => {
+                if (cancelled) return
                 console.error('Error creating arena room:', err)
                 setApiError(err.message || 'Không thể tạo phòng đấu trường')
             })
             .finally(() => {
+                if (cancelled) return
                 setCreatingRoom(false)
             })
+
+        return () => {
+            cancelled = true
+        }
     }, [testId])
 
     // Step 2: Join room as host once WebSocket is connected and roomId is acquired

@@ -24,9 +24,14 @@ namespace ExamWeb.Infrastructure.Services
             var query = _dbContext.Arenas.AsNoTracking();
 
             // If not admin, only show arenas created by current user
-            if (!_currentUser.IsAdmin && _currentUser.AccountId.HasValue)
+            if (!_currentUser.IsAdmin)
             {
-                query = query.Where(a => a.CreatedByAccountId == _currentUser.AccountId.Value);
+                if (_currentUser.AccountId is not int accountId)
+                {
+                    return Array.Empty<ArenaListDto>();
+                }
+
+                query = query.Where(a => a.CreatedByAccountId == accountId);
             }
 
             var arenas = await query
@@ -42,7 +47,7 @@ namespace ExamWeb.Infrastructure.Services
             var arena = await _dbContext.Arenas
                 .AsNoTracking()
                 .Include(a => a.Test)
-                    .ThenInclude(t => t.Questions)
+                    .ThenInclude(t => t!.Questions)
                         .ThenInclude(q => q.Answers)
                 .FirstOrDefaultAsync(a => a.Id == arenaId, cancellationToken);
 
@@ -50,7 +55,7 @@ namespace ExamWeb.Infrastructure.Services
                 return null;
 
             // Check access permission
-            if (!_currentUser.IsAdmin && arena.CreatedByAccountId != _currentUser.AccountId.Value)
+            if (!CanManageArena(arena))
                 return null;
 
             return MapToDetailDto(arena);
@@ -103,7 +108,7 @@ namespace ExamWeb.Infrastructure.Services
                 return null;
 
             // Check permission
-            if (!_currentUser.IsAdmin && arena.CreatedByAccountId != _currentUser.AccountId.Value)
+            if (!CanManageArena(arena))
                 throw new DomainException("Bạn không có quyền cập nhật đấu trường này");
 
             arena.UpdateInfo(request.Name, request.Description, request.ScheduledStartTime, request.DurationMinutes);
@@ -122,7 +127,7 @@ namespace ExamWeb.Infrastructure.Services
                 return false;
 
             // Check permission
-            if (!_currentUser.IsAdmin && arena.CreatedByAccountId != _currentUser.AccountId.Value)
+            if (!CanManageArena(arena))
                 throw new DomainException("Bạn không có quyền xóa đấu trường này");
 
             _dbContext.Arenas.Remove(arena);
@@ -140,7 +145,7 @@ namespace ExamWeb.Infrastructure.Services
                 return false;
 
             // Check permission
-            if (!_currentUser.IsAdmin && arena.CreatedByAccountId != _currentUser.AccountId.Value)
+            if (!CanManageArena(arena))
                 throw new DomainException("Bạn không có quyền kích hoạt đấu trường này");
 
             arena.Activate();
@@ -158,13 +163,19 @@ namespace ExamWeb.Infrastructure.Services
                 return false;
 
             // Check permission
-            if (!_currentUser.IsAdmin && arena.CreatedByAccountId != _currentUser.AccountId.Value)
+            if (!CanManageArena(arena))
                 throw new DomainException("Bạn không có quyền hủy kích hoạt đấu trường này");
 
             arena.Deactivate();
             await _dbContext.SaveChangesAsync(cancellationToken);
 
             return true;
+        }
+
+        private bool CanManageArena(Arena arena)
+        {
+            return _currentUser.IsAdmin ||
+                (_currentUser.AccountId is int accountId && arena.CreatedByAccountId == accountId);
         }
 
         private static ArenaListDto MapToListDto(Arena arena)

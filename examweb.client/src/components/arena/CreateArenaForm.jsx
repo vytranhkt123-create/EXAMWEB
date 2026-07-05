@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { api, arenaApi } from '../../services/api'
 
 export default function CreateArenaForm({ onSuccess, onCancel }) {
@@ -15,18 +15,28 @@ export default function CreateArenaForm({ onSuccess, onCancel }) {
     durationMinutes: 30
   })
 
-  useEffect(() => {
-    fetchTests()
-  }, [])
-
-  const fetchTests = async () => {
+  const fetchTests = useCallback(async () => {
     try {
       const response = await api('')
       setTests(response || [])
-    } catch (err) {
+    } catch {
       setError('Không thể tải danh sách đề thi')
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    Promise.resolve().then(() => {
+      if (!cancelled) {
+        fetchTests()
+      }
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [fetchTests])
 
   const handleChange = (e) => {
     const { name, value } = e.target

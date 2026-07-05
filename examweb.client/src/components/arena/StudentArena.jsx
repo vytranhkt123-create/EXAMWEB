@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useArenaSocket } from '../../hooks/useArenaSocket'
 
 export function StudentArena({ onClose }) {
@@ -7,7 +7,6 @@ export function StudentArena({ onClose }) {
     const [joined, setJoined] = useState(false)
 
     const {
-        isConnected,
         roomState,
         error,
         setError,
@@ -26,15 +25,10 @@ export function StudentArena({ onClose }) {
         setJoined(true)
     }
 
-    // Reset joined flag if error occurs
-    useEffect(() => {
-        if (error) {
-            setJoined(false)
-        }
-    }, [error])
+    const hasJoined = joined && !error
 
     // State 1: Join Screen
-    if (!joined || !roomState) {
+    if (!hasJoined || !roomState) {
         return (
             <div className="bg-gradient-to-br from-purple-800 to-indigo-900 text-white min-h-[500px] rounded-xl shadow-2xl p-6 flex flex-col justify-center items-center">
                 <div className="w-full max-w-sm text-center">
