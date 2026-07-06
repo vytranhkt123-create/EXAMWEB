@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ARENA_PHASES, useArenaSocket } from '../../hooks/useArenaSocket'
 import { MathText } from '../MathText'
+
+const FEEDBACK_DELAY_MS = 3000
 
 const ANSWER_THEMES = [
     { key: 'red', symbol: '▲', label: 'A' },
@@ -32,6 +34,11 @@ function getPlayerRank(roomState) {
     return roomState?.leaderboard?.find((player) => player.connectionId === connectionId)?.rank || null
 }
 
+function getServerQuestionIndex(roomState) {
+    const index = roomState?.currentPlayer?.currentQuestionIndex ?? roomState?.currentQuestionIndex ?? 0
+    return Number.isFinite(Number(index)) ? Number(index) : 0
+}
+
 export function StudentArena({
     arenaRoomId,
     auth,
@@ -43,6 +50,11 @@ export function StudentArena({
     const [name, setName] = useState(() => auth?.displayName || '')
     const [joined, setJoined] = useState(false)
     const [now, setNow] = useState(() => Date.now())
+    const [isAnswering, setIsAnswering] = useState(true)
+    const [answerFeedback, setAnswerFeedback] = useState(null)
+    const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+    const [waitingForOthers, setWaitingForOthers] = useState(false)
+    const handledFeedbackKeyRef = useRef('')
 
     const {
         isConnected,
@@ -51,26 +63,154 @@ export function StudentArena({
         setError,
         joinRoom,
         submitAnswer,
+        requestStudentQuestion,
     } = useArenaSocket()
 
     const phase = getPhase(roomState)
     const currentPlayer = roomState?.currentPlayer
     const currentQuestion = roomState?.currentQuestion
+    const totalQuestions = Number(roomState?.totalQuestions || 0)
     const leaderboard = roomState?.leaderboard || []
     const myRank = getPlayerRank(roomState)
+    const serverQuestionIndex = getServerQuestionIndex(roomState)
 
     useEffect(() => {
         const timer = window.setInterval(() => setNow(Date.now()), 150)
         return () => window.clearInterval(timer)
     }, [])
 
+    useEffect(() => {
+        if (phase !== ARENA_PHASES.IN_GAME && phase !== ARENA_PHASES.WAITING_FOR_OTHERS) return undefined
+
+        const syncTimer = window.setTimeout(() => {
+            const safeIndex = Math.max(0, serverQuestionIndex)
+            const isFinished = Boolean(currentPlayer?.isFinished || safeIndex >= totalQuestions)
+
+            setCurrentQuestionIndex(safeIndex)
+            setWaitingForOthers(isFinished || phase === ARENA_PHASES.WAITING_FOR_OTHERS)
+
+            if (!isFinished && !currentPlayer?.hasAnswered) {
+                setIsAnswering(true)
+                setAnswerFeedback(null)
+                handledFeedbackKeyRef.current = ''
+            }
+        }, 0)
+
+        return () => window.clearTimeout(syncTimer)
+    }, [
+        currentPlayer?.hasAnswered,
+        currentPlayer?.isFinished,
+        phase,
+        serverQuestionIndex,
+        totalQuestions,
+    ])
+
+    useEffect(() => {
+        if (
+            !joined ||
+            phase !== ARENA_PHASES.IN_GAME ||
+            waitingForOthers ||
+            currentQuestion ||
+            currentQuestionIndex >= totalQuestions
+        ) {
+            return undefined
+        }
+
+        const requestTimer = window.setTimeout(() => {
+            requestStudentQuestion(currentQuestionIndex)
+        }, 0)
+
+        return () => window.clearTimeout(requestTimer)
+    }, [
+        currentQuestion,
+        currentQuestionIndex,
+        joined,
+        phase,
+        requestStudentQuestion,
+        totalQuestions,
+        waitingForOthers,
+    ])
+
+    const moveToNextQuestion = useCallback(() => {
+        const nextIndex = currentQuestionIndex + 1
+
+        setAnswerFeedback(null)
+        handledFeedbackKeyRef.current = ''
+
+        if (nextIndex >= totalQuestions) {
+            setCurrentQuestionIndex(nextIndex)
+            setIsAnswering(false)
+            setWaitingForOthers(true)
+            requestStudentQuestion(nextIndex)
+            return
+        }
+
+        setCurrentQuestionIndex(nextIndex)
+        setIsAnswering(false)
+        setWaitingForOthers(false)
+        requestStudentQuestion(nextIndex)
+    }, [currentQuestionIndex, requestStudentQuestion, totalQuestions])
+
+    useEffect(() => {
+        const hasServerFeedback = currentPlayer?.selectedAnswerId &&
+            typeof currentPlayer.lastAnswerCorrect === 'boolean' &&
+            currentPlayer.currentQuestionIndex === currentQuestionIndex
+
+        if (!hasServerFeedback) return undefined
+
+        const feedbackKey = [
+            currentQuestionIndex,
+            currentPlayer.selectedAnswerId,
+            currentPlayer.lastAnswerCorrect,
+            currentPlayer.scoreDelta,
+        ].join(':')
+
+        if (handledFeedbackKeyRef.current === feedbackKey) return undefined
+        handledFeedbackKeyRef.current = feedbackKey
+
+        const nextFeedback = {
+            isPending: false,
+            selectedAnswerId: currentPlayer.selectedAnswerId,
+            isCorrect: currentPlayer.lastAnswerCorrect,
+            scoreDelta: currentPlayer.scoreDelta || 0,
+            speedBonus: currentPlayer.speedBonus || 0,
+            streakBonus: currentPlayer.streakBonus || 0,
+            streak: currentPlayer.streak || 0,
+            rank: currentPlayer.rank || null,
+        }
+
+        const showFeedbackTimer = window.setTimeout(() => {
+            setAnswerFeedback(nextFeedback)
+        }, 0)
+        const nextQuestionTimer = window.setTimeout(() => {
+            moveToNextQuestion()
+        }, FEEDBACK_DELAY_MS)
+
+        return () => {
+            window.clearTimeout(showFeedbackTimer)
+            window.clearTimeout(nextQuestionTimer)
+        }
+    }, [
+        currentPlayer?.currentQuestionIndex,
+        currentPlayer?.lastAnswerCorrect,
+        currentPlayer?.rank,
+        currentPlayer?.scoreDelta,
+        currentPlayer?.selectedAnswerId,
+        currentPlayer?.speedBonus,
+        currentPlayer?.streak,
+        currentPlayer?.streakBonus,
+        currentQuestionIndex,
+        moveToNextQuestion,
+    ])
+
     const countdownRemaining = Math.ceil(getRemainingMs(roomState?.countdownEndsAt, now) / 1000)
     const questionRemainingMs = getRemainingMs(roomState?.questionEndsAt, now)
     const questionDurationMs = Math.max(1, Number(roomState?.questionDurationSeconds || 20) * 1000)
     const timePercent = Math.max(0, Math.min(100, (questionRemainingMs / questionDurationMs) * 100))
+    const selectedAnswerId = answerFeedback?.selectedAnswerId || currentPlayer?.selectedAnswerId
     const selectedAnswer = useMemo(
-        () => currentQuestion?.answers?.find((answer) => answer.id === currentPlayer?.selectedAnswerId) || null,
-        [currentQuestion?.answers, currentPlayer?.selectedAnswerId],
+        () => currentQuestion?.answers?.find((answer) => answer.id === selectedAnswerId) || null,
+        [currentQuestion?.answers, selectedAnswerId],
     )
     const correctAnswer = currentQuestion?.answers?.find((answer) => answer.isCorrect)
 
@@ -88,6 +228,28 @@ export function StudentArena({
         const sent = joinRoom(normalizedPin, normalizedName, 'player')
         if (sent) {
             setJoined(true)
+        }
+    }
+
+    const handleAnswerSelect = (answer) => {
+        if (!answer?.id || !isAnswering || answerFeedback || waitingForOthers) return
+
+        setIsAnswering(false)
+        setAnswerFeedback({
+            isPending: true,
+            selectedAnswerId: answer.id,
+            isCorrect: null,
+            scoreDelta: 0,
+            speedBonus: 0,
+            streakBonus: 0,
+            streak: currentPlayer?.streak || 0,
+            rank: myRank,
+        })
+
+        const sent = submitAnswer(answer.id, currentQuestionIndex)
+        if (!sent) {
+            setIsAnswering(true)
+            setAnswerFeedback(null)
         }
     }
 
@@ -214,21 +376,45 @@ export function StudentArena({
         )
     }
 
-    const hasAnswered = Boolean(currentPlayer?.hasAnswered)
-    const isResultPhase = phase === ARENA_PHASES.RESULT
-    const resultIsCorrect = currentPlayer?.lastAnswerCorrect === true
-    const resultClass = resultIsCorrect ? 'correct' : 'wrong'
-    const flashClass = phase === ARENA_PHASES.IN_GAME &&
-        hasAnswered &&
-        typeof currentPlayer?.lastAnswerCorrect === 'boolean'
-        ? `arena-flash-${resultClass}`
+    const showWaitingForOthers = waitingForOthers ||
+        phase === ARENA_PHASES.WAITING_FOR_OTHERS ||
+        (currentPlayer?.isFinished && !answerFeedback)
+
+    if (showWaitingForOthers) {
+        return (
+            <main className="arena-player-shell arena-waiting-stage">
+                <section className="arena-waiting-card arena-complete-card">
+                    <p className="arena-kicker">Hoàn thành</p>
+                    <h1>Bạn đã hoàn thành!</h1>
+                    <p className="arena-muted">Đang đợi các bạn khác trả lời xong. Bảng xếp hạng sẽ cập nhật liên tục.</p>
+
+                    <div className="arena-my-result">
+                        <span>Điểm hiện tại</span>
+                        <strong>{formatScore(currentPlayer?.score)} điểm</strong>
+                        <small>{myRank ? `Hạng #${myRank}` : 'Đang xếp hạng'}</small>
+                    </div>
+
+                    <div className="arena-pulse-row" aria-live="polite">
+                        <span />
+                        Đang chờ Podium
+                    </div>
+                </section>
+            </main>
+        )
+    }
+
+    const feedbackIsFinal = answerFeedback && !answerFeedback.isPending
+    const feedbackClass = feedbackIsFinal
+        ? answerFeedback.isCorrect ? 'correct' : 'wrong'
         : ''
+    const flashClass = feedbackClass ? `arena-flash-${feedbackClass}` : ''
+    const answerLocked = !isAnswering || Boolean(answerFeedback)
 
     return (
         <main className={`arena-player-shell arena-game-stage ${flashClass}`}>
             <section className="arena-player-hud">
                 <div>
-                    <span>Câu {Number(roomState.currentQuestionIndex || 0) + 1}/{roomState.totalQuestions || 0}</span>
+                    <span>Câu {currentQuestionIndex + 1}/{totalQuestions}</span>
                     <strong>{currentPlayer?.name}</strong>
                 </div>
                 <div className="arena-score-pill">
@@ -241,11 +427,9 @@ export function StudentArena({
                 </div>
             </section>
 
-            {!isResultPhase && (
-                <div className="arena-time-track" aria-label="Thời gian còn lại">
-                    <span style={{ width: `${timePercent}%` }} />
-                </div>
-            )}
+            <div className="arena-time-track" aria-label="Thời gian còn lại">
+                <span style={{ width: `${timePercent}%` }} />
+            </div>
 
             <section className="arena-question-card">
                 <div className="arena-question-text">
@@ -264,9 +448,9 @@ export function StudentArena({
             <section className="arena-answer-grid" aria-label="Các đáp án">
                 {(currentQuestion?.answers || []).map((answer, index) => {
                     const theme = ANSWER_THEMES[index % ANSWER_THEMES.length]
-                    const selected = answer.id === currentPlayer?.selectedAnswerId
-                    const showCorrect = isResultPhase && answer.isCorrect
-                    const showWrong = isResultPhase && selected && !answer.isCorrect
+                    const selected = answer.id === selectedAnswerId
+                    const showCorrect = feedbackIsFinal && answer.isCorrect
+                    const showWrong = feedbackIsFinal && selected && !answerFeedback.isCorrect
 
                     return (
                         <button
@@ -276,10 +460,11 @@ export function StudentArena({
                                 selected ? 'selected' : '',
                                 showCorrect ? 'is-correct' : '',
                                 showWrong ? 'is-wrong' : '',
+                                answerLocked ? 'is-locked' : '',
                             ].filter(Boolean).join(' ')}
-                            disabled={hasAnswered || isResultPhase}
+                            disabled={answerLocked}
                             key={answer.id}
-                            onClick={() => submitAnswer(answer.id)}
+                            onClick={() => handleAnswerSelect(answer)}
                             type="button"
                         >
                             <span className="arena-answer-symbol">{theme.symbol}</span>
@@ -291,41 +476,33 @@ export function StudentArena({
                 })}
             </section>
 
-            {hasAnswered && !isResultPhase && (
-                <section className={`arena-answer-feedback ${resultClass}`} aria-live="polite">
-                    <span>{resultIsCorrect ? 'Chính xác' : 'Chưa đúng'}</span>
-                    <strong>{resultIsCorrect ? `+${formatScore(currentPlayer?.scoreDelta)} điểm` : '+0 điểm'}</strong>
+            {answerFeedback && (
+                <section className={`arena-answer-feedback ${answerFeedback.isPending ? 'pending' : feedbackClass}`} aria-live="polite">
+                    <span>
+                        {answerFeedback.isPending
+                            ? 'Đang chấm điểm'
+                            : answerFeedback.isCorrect
+                                ? 'Chính xác'
+                                : 'Chưa đúng'}
+                    </span>
+                    <strong>
+                        {answerFeedback.isPending
+                            ? '...'
+                            : answerFeedback.isCorrect
+                                ? `+${formatScore(answerFeedback.scoreDelta)} điểm`
+                                : '+0 điểm'}
+                    </strong>
                     <div className="arena-bonus-row">
-                        <small>Streak {currentPlayer?.streak || 0}</small>
-                        <small>Speed +{formatScore(currentPlayer?.speedBonus)}</small>
-                        {myRank && <small>Hạng #{myRank}</small>}
+                        <small>Streak {answerFeedback.streak || 0}</small>
+                        <small>Speed +{formatScore(answerFeedback.speedBonus)}</small>
+                        {answerFeedback.rank && <small>Hạng #{answerFeedback.rank}</small>}
                     </div>
-                </section>
-            )}
-
-            {isResultPhase && (
-                <section className={`arena-result-panel ${resultClass}`} aria-live="polite">
-                    <div>
-                        <span>{resultIsCorrect ? 'Câu này bạn làm đúng' : 'Câu này chưa chính xác'}</span>
-                        <strong>{resultIsCorrect ? `+${formatScore(currentPlayer?.scoreDelta)} điểm` : '+0 điểm'}</strong>
-                        <small>
-                            {selectedAnswer
-                                ? `Bạn chọn: ${selectedAnswer.content}`
-                                : 'Bạn chưa chọn đáp án.'}
+                    {feedbackIsFinal && (
+                        <small className="arena-feedback-note">
+                            {selectedAnswer ? `Bạn chọn: ${selectedAnswer.content}` : 'Đã gửi câu trả lời'}
+                            {!answerFeedback.isCorrect && correctAnswer ? ` · Đáp án đúng: ${correctAnswer.content}` : ''}
                         </small>
-                        {!resultIsCorrect && correctAnswer && <small>Đáp án đúng: {correctAnswer.content}</small>}
-                    </div>
-                    <div className="arena-mini-leaderboard">
-                        {leaderboard.slice(0, 5).map((player) => (
-                            <div
-                                className={player.connectionId === currentPlayer?.connectionId ? 'current' : ''}
-                                key={player.connectionId || player.name}
-                            >
-                                <span>#{player.rank} {player.name}</span>
-                                <strong>{formatScore(player.score)}</strong>
-                            </div>
-                        ))}
-                    </div>
+                    )}
                 </section>
             )}
         </main>

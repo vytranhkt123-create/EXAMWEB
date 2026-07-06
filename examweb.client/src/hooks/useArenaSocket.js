@@ -7,6 +7,7 @@ export const ARENA_PHASES = {
     COUNTDOWN: 'Countdown',
     IN_GAME: 'InGame',
     RESULT: 'Result',
+    WAITING_FOR_OTHERS: 'WaitingForOthers',
     PODIUM: 'Podium',
 }
 
@@ -125,8 +126,15 @@ export function useArenaSocket() {
         return sendSocketMessage('NextQuestion')
     }, [sendSocketMessage])
 
-    const submitAnswer = useCallback((answerId) => {
-        return sendSocketMessage('SubmitAnswer', { answerId })
+    const submitAnswer = useCallback((answerId, questionIndex = null) => {
+        return sendSocketMessage('SubmitAnswer', {
+            answerId,
+            ...(Number.isInteger(questionIndex) ? { questionIndex } : {}),
+        })
+    }, [sendSocketMessage])
+
+    const requestStudentQuestion = useCallback((questionIndex) => {
+        return sendSocketMessage('GetStudentQuestion', { questionIndex })
     }, [sendSocketMessage])
 
     const showResults = useCallback(() => {
@@ -229,6 +237,8 @@ export function useArenaSocket() {
                                     speedBonus: payload.speedBonus,
                                     streakBonus: payload.streakBonus,
                                     lastAnswerMs: payload.responseMs,
+                                    currentQuestionIndex: payload.questionIndex,
+                                    isFinished: payload.isFinished,
                                     rank: payload.rank,
                                     previousRank: payload.previousRank,
                                 }
@@ -302,6 +312,7 @@ export function useArenaSocket() {
         joinRoom,
         startGame,
         submitAnswer,
+        requestStudentQuestion,
         nextQuestion,
         showResults,
         showLeaderboard,

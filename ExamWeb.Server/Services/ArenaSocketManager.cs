@@ -100,8 +100,17 @@ namespace ExamWeb.Server.Services
                         message = "Giáo viên đã rời phòng."
                     });
                 }
-                else if (room.Players.TryRemove(connection.ConnectionId, out _))
+                else if (room.Players.TryGetValue(connection.ConnectionId, out var player))
                 {
+                    if (room.Phase == ArenaRoom.PhaseLobby || room.Phase == ArenaRoom.PhaseCountdown)
+                    {
+                        room.Players.TryRemove(connection.ConnectionId, out _);
+                    }
+                    else
+                    {
+                        player.IsConnected = false;
+                    }
+
                     await BroadcastToRoomAsync(connection.RoomId, ArenaEvents.PlayerLeft, new
                     {
                         connectionId = connection.ConnectionId,
@@ -243,6 +252,12 @@ namespace ExamWeb.Server.Services
                 return;
             }
 
+            if (type == ArenaClientEvents.GetStudentQuestion)
+            {
+                await HandleGetStudentQuestionAsync(connection, activeRoom, document.RootElement, cancellationToken);
+                return;
+            }
+
             if (type == ArenaClientEvents.ShowResults)
             {
                 if (!IsHost(connection, activeRoom)) return;
@@ -298,12 +313,30 @@ namespace ExamWeb.Server.Services
                 playerName = playerName[..40];
             }
 
-            var player = new ArenaPlayer
+            var playerKey = BuildPlayerKey(connection, roomId, playerName);
+            var existingPlayer = room.Players.Values.FirstOrDefault(p => p.PlayerKey == playerKey);
+            ArenaPlayer player;
+
+            if (existingPlayer != null)
             {
-                ConnectionId = connection.ConnectionId,
-                Name = playerName,
-                Score = 0
-            };
+                room.Players.TryRemove(existingPlayer.ConnectionId, out _);
+                existingPlayer.ConnectionId = connection.ConnectionId;
+                existingPlayer.Name = playerName;
+                existingPlayer.IsConnected = true;
+                player = existingPlayer;
+            }
+            else
+            {
+                player = new ArenaPlayer
+                {
+                    ConnectionId = connection.ConnectionId,
+                    PlayerKey = playerKey,
+                    Name = playerName,
+                    Score = 0,
+                    CurrentQuestionIndex = room.Phase == ArenaRoom.PhaseInGame ? 0 : -1,
+                    QuestionStartedAt = room.Phase == ArenaRoom.PhaseInGame ? DateTime.UtcNow : null
+                };
+            }
 
             room.Players[connection.ConnectionId] = player;
 
@@ -366,6 +399,10 @@ namespace ExamWeb.Server.Services
 
             foreach (var player in room.Players.Values)
             {
+                player.CurrentQuestionIndex = 0;
+                player.IsFinished = false;
+                player.QuestionResults.Clear();
+                player.QuestionStartedAt = room.QuestionStartTime;
                 player.HasAnswered = false;
                 player.SelectedAnswerId = null;
                 player.ScoreDelta = 0;
@@ -404,7 +441,7 @@ namespace ExamWeb.Server.Services
                 return;
             }
 
-            if (room.CurrentQuestionIndex < 0 || room.CurrentQuestionIndex >= room.Questions.Count || player.HasAnswered)
+            if (player.IsFinished)
             {
                 return;
             }
@@ -420,15 +457,27 @@ namespace ExamWeb.Server.Services
                 return;
             }
 
-            var currentQuestion = room.Questions[room.CurrentQuestionIndex];
+            var questionIndex = GetInt(payload, "questionIndex") ?? player.CurrentQuestionIndex;
+            if (questionIndex < 0 || questionIndex >= room.Questions.Count)
+            {
+                return;
+            }
+
+            if (player.QuestionResults.ContainsKey(questionIndex))
+            {
+                return;
+            }
+
+            var currentQuestion = room.Questions[questionIndex];
             var selectedAnswer = currentQuestion.Answers.FirstOrDefault(a => a.Id == answerId);
             var previousRank = GetPlayerRank(room, player.ConnectionId);
-            var elapsed = room.QuestionStartTime.HasValue
-                ? DateTime.UtcNow - room.QuestionStartTime.Value
+            var elapsed = player.QuestionStartedAt.HasValue && player.CurrentQuestionIndex == questionIndex
+                ? DateTime.UtcNow - player.QuestionStartedAt.Value
                 : TimeSpan.Zero;
 
             player.HasAnswered = true;
             player.SelectedAnswerId = answerId;
+            player.CurrentQuestionIndex = questionIndex;
             player.LastAnswerMs = Math.Max(0, (int)Math.Round(elapsed.TotalMilliseconds));
 
             var isCorrect = selectedAnswer?.IsCorrect == true;
@@ -456,14 +505,34 @@ namespace ExamWeb.Server.Services
                 player.LastAnswerCorrect = false;
             }
 
+            player.QuestionResults[questionIndex] = new ArenaPlayerQuestionResult
+            {
+                QuestionIndex = questionIndex,
+                AnswerId = answerId,
+                IsCorrect = isCorrect,
+                ScoreDelta = player.ScoreDelta,
+                SpeedBonus = player.SpeedBonus,
+                StreakBonus = player.StreakBonus,
+                ResponseMs = player.LastAnswerMs
+            };
+
+            var isFinished = questionIndex + 1 >= room.Questions.Count;
+            if (isFinished)
+            {
+                player.IsFinished = true;
+                player.CurrentQuestionIndex = room.Questions.Count;
+            }
+
             var currentRank = GetPlayerRank(room, player.ConnectionId);
             var answerStats = GetAnswerStats(room);
             var submitPayload = new
             {
                 connectionId = player.ConnectionId,
                 playerName = player.Name,
+                questionIndex,
                 selectedAnswerId = answerId,
                 isCorrect,
+                isFinished,
                 score = player.Score,
                 scoreDelta = player.ScoreDelta,
                 streak = player.Streak,
@@ -479,11 +548,91 @@ namespace ExamWeb.Server.Services
             await SendToConnectionIdAsync(room.HostConnectionId, ArenaEvents.AnswerSubmitted, submitPayload, cancellationToken);
             await BroadcastLeaderboardUpdatedAsync(room, cancellationToken);
 
-            var stats = BuildAnswerStats(room);
-            if (stats.TotalPlayers > 0 && stats.AnsweredCount == stats.TotalPlayers)
+            if (room.Players.Values.Any() && room.Players.Values.All(p => p.IsFinished))
             {
-                await EndQuestionAsync(room, cancellationToken);
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(3));
+                    if (room.Phase == ArenaRoom.PhaseInGame &&
+                        room.Players.Values.Any() &&
+                        room.Players.Values.All(p => p.IsFinished))
+                    {
+                        await CompleteGameAsync(room, CancellationToken.None);
+                    }
+                });
             }
+        }
+
+        private async Task HandleGetStudentQuestionAsync(
+            ArenaSocketConnection connection,
+            ArenaRoom room,
+            JsonElement root,
+            CancellationToken cancellationToken)
+        {
+            if (room.Phase != ArenaRoom.PhaseInGame)
+            {
+                return;
+            }
+
+            if (!room.Players.TryGetValue(connection.ConnectionId, out var player))
+            {
+                return;
+            }
+
+            var requestedIndex = player.CurrentQuestionIndex;
+            if (root.TryGetProperty("payload", out var payload))
+            {
+                requestedIndex = GetInt(payload, "questionIndex") ?? requestedIndex;
+            }
+
+            if (requestedIndex < 0)
+            {
+                requestedIndex = 0;
+            }
+
+            if (requestedIndex >= room.Questions.Count)
+            {
+                player.IsFinished = true;
+                player.CurrentQuestionIndex = room.Questions.Count;
+                player.HasAnswered = false;
+                player.SelectedAnswerId = null;
+                player.LastAnswerCorrect = null;
+                player.ScoreDelta = 0;
+                player.SpeedBonus = 0;
+                player.StreakBonus = 0;
+                player.LastAnswerMs = null;
+
+                await SendAsync(connection, ArenaEvents.RoomState, GetRoomStateForPlayer(room, connection.ConnectionId), cancellationToken);
+                return;
+            }
+
+            if (player.QuestionResults.ContainsKey(requestedIndex))
+            {
+                requestedIndex = Enumerable
+                    .Range(0, room.Questions.Count)
+                    .FirstOrDefault(index => !player.QuestionResults.ContainsKey(index), room.Questions.Count);
+            }
+
+            if (requestedIndex >= room.Questions.Count)
+            {
+                player.IsFinished = true;
+                player.CurrentQuestionIndex = room.Questions.Count;
+                await SendAsync(connection, ArenaEvents.RoomState, GetRoomStateForPlayer(room, connection.ConnectionId), cancellationToken);
+                return;
+            }
+
+            player.CurrentQuestionIndex = requestedIndex;
+            player.IsFinished = false;
+            player.HasAnswered = false;
+            player.SelectedAnswerId = null;
+            player.LastAnswerCorrect = null;
+            player.ScoreDelta = 0;
+            player.SpeedBonus = 0;
+            player.StreakBonus = 0;
+            player.LastAnswerMs = null;
+            player.QuestionStartedAt = DateTime.UtcNow;
+
+            await SendAsync(connection, ArenaEvents.RoomState, GetRoomStateForPlayer(room, connection.ConnectionId), cancellationToken);
         }
 
         private async Task EndQuestionAsync(ArenaRoom room, CancellationToken cancellationToken)
@@ -577,13 +726,17 @@ namespace ExamWeb.Server.Services
         private object GetRoomStateForPlayer(ArenaRoom room, string playerConnectionId)
         {
             room.Players.TryGetValue(playerConnectionId, out var currentPlayer);
+            var playerQuestionIndex = currentPlayer?.CurrentQuestionIndex ?? room.CurrentQuestionIndex;
+            var playerPhase = currentPlayer?.IsFinished == true && room.Phase == ArenaRoom.PhaseInGame
+                ? "WaitingForOthers"
+                : room.Phase;
 
             return new
             {
                 roomId = room.RoomId,
                 testName = room.TestName,
-                phase = room.Phase,
-                currentQuestionIndex = room.CurrentQuestionIndex,
+                phase = playerPhase,
+                currentQuestionIndex = playerQuestionIndex,
                 totalQuestions = room.Questions.Count,
                 showAnswers = room.ShowAnswers,
                 gameOver = room.Phase == ArenaRoom.PhasePodium,
@@ -604,9 +757,11 @@ namespace ExamWeb.Server.Services
                     speedBonus = currentPlayer.SpeedBonus,
                     streakBonus = currentPlayer.StreakBonus,
                     lastAnswerMs = currentPlayer.LastAnswerMs,
+                    currentQuestionIndex = currentPlayer.CurrentQuestionIndex,
+                    isFinished = currentPlayer.IsFinished,
                     rank = GetPlayerRank(room, currentPlayer.ConnectionId)
                 },
-                currentQuestion = GetCurrentQuestionPayload(room, includeCorrectAnswers: room.ShowAnswers),
+                currentQuestion = GetCurrentQuestionPayload(room, playerQuestionIndex, includeCorrectAnswers: room.ShowAnswers),
                 answerStats = GetAnswerStats(room),
                 leaderboard = GetLeaderboard(room)
             };
@@ -614,12 +769,17 @@ namespace ExamWeb.Server.Services
 
         private object? GetCurrentQuestionPayload(ArenaRoom room, bool includeCorrectAnswers)
         {
-            if (room.CurrentQuestionIndex < 0 || room.CurrentQuestionIndex >= room.Questions.Count)
+            return GetCurrentQuestionPayload(room, room.CurrentQuestionIndex, includeCorrectAnswers);
+        }
+
+        private object? GetCurrentQuestionPayload(ArenaRoom room, int questionIndex, bool includeCorrectAnswers)
+        {
+            if (questionIndex < 0 || questionIndex >= room.Questions.Count)
             {
                 return null;
             }
 
-            var currentQuestion = room.Questions[room.CurrentQuestionIndex];
+            var currentQuestion = room.Questions[questionIndex];
             return new
             {
                 id = currentQuestion.Id,
@@ -646,7 +806,10 @@ namespace ExamWeb.Server.Services
                 name = player.Name,
                 score = player.Score,
                 hasAnswered = player.HasAnswered,
-                streak = player.Streak
+                streak = player.Streak,
+                isConnected = player.IsConnected,
+                isFinished = player.IsFinished,
+                currentQuestionIndex = player.CurrentQuestionIndex
             };
         }
 
@@ -670,6 +833,9 @@ namespace ExamWeb.Server.Services
                     lastAnswerCorrect = entry.LastAnswerCorrect,
                     streak = entry.Streak,
                     hasAnswered = entry.HasAnswered,
+                    isConnected = entry.IsConnected,
+                    isFinished = entry.IsFinished,
+                    currentQuestionIndex = entry.CurrentQuestionIndex,
                     speedBonus = entry.SpeedBonus,
                     streakBonus = entry.StreakBonus,
                     responseMs = entry.LastAnswerMs
@@ -693,6 +859,9 @@ namespace ExamWeb.Server.Services
                     LastAnswerCorrect = p.LastAnswerCorrect,
                     Streak = p.Streak,
                     HasAnswered = p.HasAnswered,
+                    IsConnected = p.IsConnected,
+                    IsFinished = p.IsFinished,
+                    CurrentQuestionIndex = p.CurrentQuestionIndex,
                     SpeedBonus = p.SpeedBonus,
                     StreakBonus = p.StreakBonus,
                     LastAnswerMs = p.LastAnswerMs
@@ -723,7 +892,9 @@ namespace ExamWeb.Server.Services
 
         private static ArenaAnswerStats BuildAnswerStats(ArenaRoom room)
         {
-            var answeredCount = room.Players.Values.Count(p => p.HasAnswered);
+            var activeQuestionIndex = Math.Max(0, room.CurrentQuestionIndex);
+            var answeredCount = room.Players.Values.Count(p =>
+                p.QuestionResults.ContainsKey(activeQuestionIndex) || p.IsFinished);
             var correctCount = room.Players.Values.Count(p => p.LastAnswerCorrect == true);
             var wrongCount = room.Players.Values.Count(p => p.LastAnswerCorrect == false);
             var totalPlayers = room.Players.Count;
@@ -757,6 +928,16 @@ namespace ExamWeb.Server.Services
                 connection.ConnectionId == room.HostConnectionId;
         }
 
+        private static string BuildPlayerKey(ArenaSocketConnection connection, string roomId, string playerName)
+        {
+            if (connection.AccountId is int accountId)
+            {
+                return $"account:{accountId}";
+            }
+
+            return $"guest:{roomId}:{playerName.Trim().ToUpperInvariant()}";
+        }
+
         private static string? GetString(JsonElement element, string propertyName)
         {
             if (!element.TryGetProperty(propertyName, out var property) ||
@@ -767,6 +948,29 @@ namespace ExamWeb.Server.Services
             }
 
             return property.GetString();
+        }
+
+        private static int? GetInt(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out var property) ||
+                property.ValueKind == JsonValueKind.Null ||
+                property.ValueKind == JsonValueKind.Undefined)
+            {
+                return null;
+            }
+
+            if (property.ValueKind == JsonValueKind.Number && property.TryGetInt32(out var value))
+            {
+                return value;
+            }
+
+            if (property.ValueKind == JsonValueKind.String &&
+                int.TryParse(property.GetString(), out var parsed))
+            {
+                return parsed;
+            }
+
+            return null;
         }
 
         private static string NormalizeClientMessageType(string? rawType)
@@ -785,6 +989,8 @@ namespace ExamWeb.Server.Services
                 "startquestion" => ArenaClientEvents.NextQuestion,
                 "nextquestion" => ArenaClientEvents.NextQuestion,
                 "submitanswer" => ArenaClientEvents.SubmitAnswer,
+                "getstudentquestion" => ArenaClientEvents.GetStudentQuestion,
+                "requeststudentquestion" => ArenaClientEvents.GetStudentQuestion,
                 "showresults" => ArenaClientEvents.ShowResults,
                 "showleaderboard" => ArenaClientEvents.ShowLeaderboard,
                 _ => rawType.Trim()
@@ -899,6 +1105,7 @@ namespace ExamWeb.Server.Services
             public const string StartGame = "StartGame";
             public const string NextQuestion = "NextQuestion";
             public const string SubmitAnswer = "SubmitAnswer";
+            public const string GetStudentQuestion = "GetStudentQuestion";
             public const string ShowResults = "ShowResults";
             public const string ShowLeaderboard = "ShowLeaderboard";
         }
@@ -956,6 +1163,9 @@ namespace ExamWeb.Server.Services
             public bool? LastAnswerCorrect { get; set; }
             public int Streak { get; set; }
             public bool HasAnswered { get; set; }
+            public bool IsConnected { get; set; }
+            public bool IsFinished { get; set; }
+            public int CurrentQuestionIndex { get; set; }
             public int SpeedBonus { get; set; }
             public int StreakBonus { get; set; }
             public int? LastAnswerMs { get; set; }

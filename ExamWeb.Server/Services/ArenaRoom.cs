@@ -24,9 +24,11 @@ namespace ExamWeb.Server.Services
     public class ArenaPlayer
     {
         public string ConnectionId { get; set; } = string.Empty;
+        public string PlayerKey { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
         public decimal Score { get; set; } = 0;
         public bool IsHost { get; set; } = false;
+        public bool IsConnected { get; set; } = true;
         public bool HasAnswered { get; set; } = false;
         public string? SelectedAnswerId { get; set; }
         public int ScoreDelta { get; set; } = 0;
@@ -35,6 +37,21 @@ namespace ExamWeb.Server.Services
         public int SpeedBonus { get; set; } = 0;
         public int StreakBonus { get; set; } = 0;
         public int? LastAnswerMs { get; set; }
+        public int CurrentQuestionIndex { get; set; } = -1;
+        public bool IsFinished { get; set; } = false;
+        public DateTime? QuestionStartedAt { get; set; }
+        public ConcurrentDictionary<int, ArenaPlayerQuestionResult> QuestionResults { get; } = new();
+    }
+
+    public class ArenaPlayerQuestionResult
+    {
+        public int QuestionIndex { get; set; }
+        public string AnswerId { get; set; } = string.Empty;
+        public bool IsCorrect { get; set; }
+        public int ScoreDelta { get; set; }
+        public int SpeedBonus { get; set; }
+        public int StreakBonus { get; set; }
+        public int? ResponseMs { get; set; }
     }
 
     public class ArenaRoom

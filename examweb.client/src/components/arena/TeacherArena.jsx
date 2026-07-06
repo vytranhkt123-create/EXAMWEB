@@ -128,8 +128,6 @@ function TeacherArenaRoom({ testId, onBack }) {
         error: socketError,
         joinRoom,
         startGame,
-        nextQuestion,
-        showResults,
     } = useArenaSocket()
 
     const error = apiError || socketError
@@ -321,20 +319,10 @@ function TeacherArenaRoom({ testId, onBack }) {
                     <span>PIN {roomId || roomState.roomId}</span>
                 </div>
                 <div className="arena-live-actions">
+                    <span className="arena-paced-chip">Student-paced</span>
                     <button className="arena-link-btn light" onClick={onBack} type="button">
                         Kết thúc
                     </button>
-                    {isResultPhase ? (
-                        <button className="arena-primary-btn" onClick={nextQuestion} type="button">
-                            {Number(roomState.currentQuestionIndex || 0) + 1 >= Number(roomState.totalQuestions || 0)
-                                ? 'Xem Podium'
-                                : 'Câu tiếp theo'}
-                        </button>
-                    ) : (
-                        <button className="arena-danger-btn" onClick={showResults} type="button">
-                            Chốt câu
-                        </button>
-                    )}
                 </div>
             </header>
 
