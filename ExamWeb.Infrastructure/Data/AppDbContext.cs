@@ -1,6 +1,7 @@
 ﻿using ExamWeb.Domain.Entity.Answers;
 using ExamWeb.Domain.Entity.ExamAttempts;
 using ExamWeb.Domain.Entity.Accounts;
+using ExamWeb.Domain.Entity.Chats;
 using ExamWeb.Domain.Entity.ExamMonitorEvents;
 using ExamWeb.Domain.Entity.OnlineClasses;
 using ExamWeb.Domain.Entity.Questions;
@@ -37,5 +38,10 @@ namespace ExamWeb.Infrastructure.Data
         public DbSet<ClassSchedule> ClassSchedules { get; set; }
         public DbSet<ScheduleAttendance> ScheduleAttendances { get; set; }
         public DbSet<Arena> Arenas { get; set; }
+        public DbSet<ChatRoom> ChatRooms { get; set; }
+        public DbSet<ChatRoomParticipant> ChatRoomParticipants { get; set; }
+        public DbSet<ChatMessage> ChatMessages { get; set; }
+        public DbSet<ChatReaction> ChatReactions { get; set; }
+        public DbSet<ChatReadReceipt> ChatReadReceipts { get; set; }
     }
 }

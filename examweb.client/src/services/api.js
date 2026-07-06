@@ -137,6 +137,14 @@ export function onlineClassApi(path = '', options = {}) {
     return requestJson(buildApiUrl(`/api/online-class${path}`), withAuthHeaders(options))
 }
 
+export function chatApi(path = '', options = {}) {
+    return requestJson(buildApiUrl(`/api/chat${path}`), withAuthHeaders(options))
+}
+
+export function getChatHubUrl() {
+    return buildApiUrl('/hubs/chat')
+}
+
 export function classesApi(path = '', options = {}) {
     return requestJson(buildApiUrl(`/api/classes${path}`), withAuthHeaders(options))
 }

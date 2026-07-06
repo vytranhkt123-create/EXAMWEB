@@ -3,6 +3,7 @@ using ExamWeb.Application.Options;
 using ExamWeb.Infrastructure.Data;
 using ExamWeb.Infrastructure.Services;
 using ExamWeb.Server.Services;
+using ExamWeb.Server.Hubs;
 using ExamWeb.Server.Options;
 using ExamWeb.Domain.Entity.Accounts;
 using ExamWeb.Infrastructure.Security;
@@ -79,9 +80,12 @@ namespace ExamWeb.Server
             builder.Services.AddScoped<IOnlineClassService, OnlineClassService>();
             builder.Services.AddScoped<IScheduleService, ScheduleService>();
             builder.Services.AddScoped<IArenaService, ArenaService>();
+            builder.Services.AddScoped<IChatService, ChatService>();
+            builder.Services.AddSignalR();
             builder.Services.AddSingleton<OnlineClassSocketManager>();
             builder.Services.AddSingleton<IOnlineClassRealtimeNotifier>(sp => sp.GetRequiredService<OnlineClassSocketManager>());
             builder.Services.AddSingleton<ArenaSocketManager>();
+            builder.Services.AddSingleton<ChatPresenceTracker>();
             builder.Services.AddAuthorization();
             builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection("JwtSettings"));
             builder.Services.Configure<AiSettings>(builder.Configuration.GetSection("AI"));
@@ -111,7 +115,9 @@ namespace ExamWeb.Server
                             var accessToken = context.Request.Query["access_token"];
                             var path = context.HttpContext.Request.Path;
                             if (!string.IsNullOrWhiteSpace(accessToken) &&
-                                (path.StartsWithSegments("/ws/online-class") || path.StartsWithSegments("/ws/arena")))
+                                (path.StartsWithSegments("/ws/online-class") ||
+                                 path.StartsWithSegments("/ws/arena") ||
+                                 path.StartsWithSegments("/hubs/chat")))
                             {
                                 context.Token = accessToken;
                             }
@@ -192,6 +198,7 @@ namespace ExamWeb.Server
                 var socketManager = context.RequestServices.GetRequiredService<ArenaSocketManager>();
                 await socketManager.HandleConnectionAsync(context);
             });
+            app.MapHub<ChatHub>("/hubs/chat");
             app.MapControllers();
 
             if (hasClientDist)

@@ -11,6 +11,7 @@ import { AdminSchedulePanel } from './components/schedule/AdminSchedulePanel'
 import { StudentSchedulePanel } from './components/schedule/StudentSchedulePanel'
 import { TeacherArena } from './components/arena/TeacherArena'
 import { StudentArena } from './components/arena/StudentArena'
+import { ChatDock } from './components/chat/ChatDock'
 import { APP_NAME, MAX_PDF_FILE_SIZE, THEME_STORAGE_KEY } from './config/appConfig'
 import { api, authApi, materialFileApi, materialsApi, onlineClassApi, studentsApi, updateTestQuestion } from './services/api'
 import { OnlineClassRoom } from './components/online-class/OnlineClassRoom'
@@ -1528,94 +1529,97 @@ function App() {
 
     if (mode === 'admin') {
         return (
-            <AdminDashboard
-                adminSection={adminSection}
-                adminTest={adminTest}
-                adminTestTab={adminTestTab}
-                assignedStudentIds={assignedStudentIds}
-                attemptHistory={attemptHistory}
-                auth={auth}
-                courseTestClassRoomId={courseTestClassRoomId}
-                createdStudentCredentials={createdStudentCredentials}
-                editQuestionDraft={editQuestionDraft}
-                editAllowPracticeMode={editAllowPracticeMode}
-                editDurationMinutes={editDurationMinutes}
-                editTestName={editTestName}
-                editingQuestion={editingQuestion}
-                error={error}
-                historyLoading={historyLoading}
-                inputMethod={inputMethod}
-                jsonDraft={jsonDraft}
-                loading={loading}
-                materials={materials}
-                monitoringLoading={monitoringLoading}
-                newAllowPracticeMode={newAllowPracticeMode}
-                newDurationMinutes={newDurationMinutes}
-                newStudent={newStudent}
-                newTestAssignedStudentIds={newTestAssignedStudentIds}
-                newTestName={newTestName}
-                onAddDraftAnswer={addDraftAnswer}
-                onAddEditQuestionAnswer={addEditQuestionAnswer}
-                onAddMaterial={addMaterial}
-                onClearChat={clearChatMessages}
-                onAddQuestion={addQuestion}
-                onChangeStudentPassword={changeStudentPassword}
-                onCloseCreatedStudentCredentials={() => setCreatedStudentCredentials(null)}
-                onCloseEditQuestion={closeEditQuestion}
-                onCreateStudent={createStudentAccount}
-                onCreateTest={createTest}
-                onCreateCourseTest={openCourseTestCreator}
-                onDeleteMaterial={deleteMaterial}
-                onDeleteQuestion={deleteQuestion}
-                onDeleteStudent={deleteStudentAccount}
-                onDeleteTest={deleteTest}
-                onDeleteWhiteboardSnapshot={deleteWhiteboardSnapshot}
-                onImportJson={importQuestionsFromJson}
-                onLogout={handleLogout}
-                onOpenTest={openAdminTest}
-                onClearCourseTestContext={() => setCourseTestClassRoomId('')}
-                onQuestionImageChange={handleQuestionImageChange}
-                onRemoveDraftAnswer={removeDraftAnswer}
-                onRemoveEditQuestionAnswer={removeEditQuestionAnswer}
-                onSaveEditQuestion={saveEditedQuestion}
-                onSaveWhiteboard={saveWhiteboardImage}
-                onSendChatMessage={sendChatMessage}
-                onSetAdminSection={setAdminSection}
-                onSetAdminTestTab={setAdminTestTab}
-                onSetInputMethod={setInputMethod}
-                onSetQuestionType={updateQuestionDraftType}
-                onSetEditQuestionType={updateEditQuestionDraftType}
-                onStartEditQuestion={startEditQuestion}
-                onToggleOnlineLive={toggleOnlineClassLive}
-                onToggleAssignedStudent={toggleAssignedStudent}
-                onToggleNewTestAssignedStudent={toggleNewTestAssignedStudent}
-                onUpdateOnlineClass={updateOnlineClassSettings}
-                onUpdateDraftAnswer={updateDraftAnswer}
-                onUpdateEditQuestionAnswer={updateEditQuestionAnswer}
-                onUpdateSettings={updateTestSettings}
-                onUseWhiteboardSnapshot={useWhiteboardSnapshot}
-                onlineClass={onlineClass}
-                onlineNotice={onlineNotice}
-                questionDraft={questionDraft}
-                saving={saving}
-                screenMonitorSessions={screenMonitorSessions}
-                setEditDurationMinutes={setEditDurationMinutes}
-                setEditQuestionDraft={setEditQuestionDraft}
-                setEditAllowPracticeMode={setEditAllowPracticeMode}
-                setEditTestName={setEditTestName}
-                setJsonDraft={setJsonDraft}
-                setNewAllowPracticeMode={setNewAllowPracticeMode}
-                setNewDurationMinutes={setNewDurationMinutes}
-                setNewStudent={setNewStudent}
-                setNewTestName={setNewTestName}
-                setQuestionDraft={setQuestionDraft}
-                students={students}
-                tests={tests}
-                theme={theme}
-                onToggleTheme={toggleTheme}
-                chatMessages={chatMessages}
-                whiteboardSnapshots={whiteboardSnapshots}
-            />
+            <>
+                <AdminDashboard
+                    adminSection={adminSection}
+                    adminTest={adminTest}
+                    adminTestTab={adminTestTab}
+                    assignedStudentIds={assignedStudentIds}
+                    attemptHistory={attemptHistory}
+                    auth={auth}
+                    courseTestClassRoomId={courseTestClassRoomId}
+                    createdStudentCredentials={createdStudentCredentials}
+                    editQuestionDraft={editQuestionDraft}
+                    editAllowPracticeMode={editAllowPracticeMode}
+                    editDurationMinutes={editDurationMinutes}
+                    editTestName={editTestName}
+                    editingQuestion={editingQuestion}
+                    error={error}
+                    historyLoading={historyLoading}
+                    inputMethod={inputMethod}
+                    jsonDraft={jsonDraft}
+                    loading={loading}
+                    materials={materials}
+                    monitoringLoading={monitoringLoading}
+                    newAllowPracticeMode={newAllowPracticeMode}
+                    newDurationMinutes={newDurationMinutes}
+                    newStudent={newStudent}
+                    newTestAssignedStudentIds={newTestAssignedStudentIds}
+                    newTestName={newTestName}
+                    onAddDraftAnswer={addDraftAnswer}
+                    onAddEditQuestionAnswer={addEditQuestionAnswer}
+                    onAddMaterial={addMaterial}
+                    onClearChat={clearChatMessages}
+                    onAddQuestion={addQuestion}
+                    onChangeStudentPassword={changeStudentPassword}
+                    onCloseCreatedStudentCredentials={() => setCreatedStudentCredentials(null)}
+                    onCloseEditQuestion={closeEditQuestion}
+                    onCreateStudent={createStudentAccount}
+                    onCreateTest={createTest}
+                    onCreateCourseTest={openCourseTestCreator}
+                    onDeleteMaterial={deleteMaterial}
+                    onDeleteQuestion={deleteQuestion}
+                    onDeleteStudent={deleteStudentAccount}
+                    onDeleteTest={deleteTest}
+                    onDeleteWhiteboardSnapshot={deleteWhiteboardSnapshot}
+                    onImportJson={importQuestionsFromJson}
+                    onLogout={handleLogout}
+                    onOpenTest={openAdminTest}
+                    onClearCourseTestContext={() => setCourseTestClassRoomId('')}
+                    onQuestionImageChange={handleQuestionImageChange}
+                    onRemoveDraftAnswer={removeDraftAnswer}
+                    onRemoveEditQuestionAnswer={removeEditQuestionAnswer}
+                    onSaveEditQuestion={saveEditedQuestion}
+                    onSaveWhiteboard={saveWhiteboardImage}
+                    onSendChatMessage={sendChatMessage}
+                    onSetAdminSection={setAdminSection}
+                    onSetAdminTestTab={setAdminTestTab}
+                    onSetInputMethod={setInputMethod}
+                    onSetQuestionType={updateQuestionDraftType}
+                    onSetEditQuestionType={updateEditQuestionDraftType}
+                    onStartEditQuestion={startEditQuestion}
+                    onToggleOnlineLive={toggleOnlineClassLive}
+                    onToggleAssignedStudent={toggleAssignedStudent}
+                    onToggleNewTestAssignedStudent={toggleNewTestAssignedStudent}
+                    onUpdateOnlineClass={updateOnlineClassSettings}
+                    onUpdateDraftAnswer={updateDraftAnswer}
+                    onUpdateEditQuestionAnswer={updateEditQuestionAnswer}
+                    onUpdateSettings={updateTestSettings}
+                    onUseWhiteboardSnapshot={useWhiteboardSnapshot}
+                    onlineClass={onlineClass}
+                    onlineNotice={onlineNotice}
+                    questionDraft={questionDraft}
+                    saving={saving}
+                    screenMonitorSessions={screenMonitorSessions}
+                    setEditDurationMinutes={setEditDurationMinutes}
+                    setEditQuestionDraft={setEditQuestionDraft}
+                    setEditAllowPracticeMode={setEditAllowPracticeMode}
+                    setEditTestName={setEditTestName}
+                    setJsonDraft={setJsonDraft}
+                    setNewAllowPracticeMode={setNewAllowPracticeMode}
+                    setNewDurationMinutes={setNewDurationMinutes}
+                    setNewStudent={setNewStudent}
+                    setNewTestName={setNewTestName}
+                    setQuestionDraft={setQuestionDraft}
+                    students={students}
+                    tests={tests}
+                    theme={theme}
+                    onToggleTheme={toggleTheme}
+                    chatMessages={chatMessages}
+                    whiteboardSnapshots={whiteboardSnapshots}
+                />
+                <ChatDock auth={auth} />
+            </>
         )
     }
 
@@ -1748,6 +1752,8 @@ function App() {
                     saving={saving}
                 />
             )}
+
+            {!studentTest && <ChatDock auth={auth} />}
         </div>
     )
 }
