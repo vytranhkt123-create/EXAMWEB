@@ -227,6 +227,8 @@ namespace ExamWeb.Infrastructure.Services
                     {
                         Id = q.Id,
                         Content = q.Content,
+                        QuestionType = q.QuestionType.ToString(),
+                        ImageUrl = q.ImageUrl,
                         Score = q.Score,
                         OrderIndex = q.OrderIndex,
                         Answers = q.Answers

@@ -24,6 +24,8 @@ namespace ExamWeb.Application.DTO.Arenas
     {
         public string Id { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
+        public string QuestionType { get; set; } = "MultipleChoice";
+        public string? ImageUrl { get; set; }
         public decimal Score { get; set; }
         public int OrderIndex { get; set; }
         public List<ArenaAnswerDto> Answers { get; set; } = new();

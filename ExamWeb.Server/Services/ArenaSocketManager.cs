@@ -1,27 +1,20 @@
-using System.Collections.Concurrent;
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
-using ExamWeb.Application.IService;
-using ExamWeb.Infrastructure.Data;
-using Microsoft.EntityFrameworkCore;
 
 namespace ExamWeb.Server.Services
 {
     public class ArenaSocketManager
     {
         private const int MaxInboundMessageBytes = 1024 * 1024;
-        private readonly ConcurrentDictionary<string, ArenaSocketConnection> _connections = new();
-        private static readonly ConcurrentDictionary<string, ArenaRoom> _rooms = new();
-        private readonly IServiceScopeFactory _scopeFactory;
-        private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
+        private const int DefaultQuestionDurationSeconds = 20;
 
-        public ArenaSocketManager(IServiceScopeFactory scopeFactory)
-        {
-            _scopeFactory = scopeFactory;
-        }
+        private static readonly ConcurrentDictionary<string, ArenaRoom> _rooms = new();
+        private readonly ConcurrentDictionary<string, ArenaSocketConnection> _connections = new();
+        private readonly JsonSerializerOptions _jsonOptions = new(JsonSerializerDefaults.Web);
 
         public static string CreateRoom(string testId, string testName, List<ArenaQuestionDto> questions)
         {
@@ -38,7 +31,9 @@ namespace ExamWeb.Server.Services
                 TestId = testId,
                 TestName = testName,
                 Questions = questions,
-                CurrentQuestionIndex = -1
+                CurrentQuestionIndex = -1,
+                Phase = ArenaRoom.PhaseLobby,
+                QuestionDurationSeconds = DefaultQuestionDurationSeconds
             };
 
             _rooms[roomId] = room;
@@ -65,14 +60,13 @@ namespace ExamWeb.Server.Services
                 webSocket,
                 accountId,
                 displayName,
-                role
-            );
+                role);
 
             _connections[connection.ConnectionId] = connection;
 
             try
             {
-                await SendAsync(connection, "connected", new
+                await SendAsync(connection, ArenaEvents.Connected, new
                 {
                     connectionId = connection.ConnectionId
                 }, context.RequestAborted);
@@ -95,21 +89,27 @@ namespace ExamWeb.Server.Services
         {
             _connections.TryRemove(connection.ConnectionId, out _);
 
-            if (!string.IsNullOrEmpty(connection.RoomId) && _rooms.TryGetValue(connection.RoomId, out var room))
+            if (!string.IsNullOrEmpty(connection.RoomId) &&
+                _rooms.TryGetValue(connection.RoomId, out var room))
             {
                 if (connection.ConnectionId == room.HostConnectionId)
                 {
-                    // If teacher disconnects, we can notify students but keep room for a while or clean up
-                    await BroadcastToRoomAsync(connection.RoomId, "host-disconnected", new { message = "Giáo viên đã rời phòng." });
+                    room.HostConnectionId = string.Empty;
+                    await BroadcastToRoomAsync(connection.RoomId, ArenaEvents.HostDisconnected, new
+                    {
+                        message = "Giáo viên đã rời phòng."
+                    });
                 }
-                else
+                else if (room.Players.TryRemove(connection.ConnectionId, out _))
                 {
-                    room.Players.TryRemove(connection.ConnectionId, out _);
-                    await BroadcastToRoomAsync(connection.RoomId, "player-left", new
+                    await BroadcastToRoomAsync(connection.RoomId, ArenaEvents.PlayerLeft, new
                     {
                         connectionId = connection.ConnectionId,
-                        players = GetSanitizedPlayers(room)
+                        players = GetSanitizedPlayers(room),
+                        answerStats = GetAnswerStats(room),
+                        leaderboard = GetLeaderboard(room)
                     });
+                    await BroadcastLeaderboardUpdatedAsync(room);
                 }
             }
 
@@ -138,6 +138,7 @@ namespace ExamWeb.Server.Services
                         result = await connection.Socket.ReceiveAsync(
                             new ArraySegment<byte>(buffer),
                             cancellationToken);
+
                         if (result.MessageType == WebSocketMessageType.Close)
                         {
                             await connection.Socket.CloseAsync(
@@ -190,235 +191,383 @@ namespace ExamWeb.Server.Services
                 return;
             }
 
-            var type = typeElement.GetString();
+            var type = NormalizeClientMessageType(typeElement.GetString());
             if (string.IsNullOrWhiteSpace(type))
             {
                 return;
             }
 
-            if (type.Equals("ping", StringComparison.OrdinalIgnoreCase))
+            if (type == ArenaClientEvents.Ping)
             {
-                await SendAsync(connection, "pong", new { at = DateTime.UtcNow }, cancellationToken);
+                await SendAsync(connection, ArenaEvents.Pong, new { at = DateTime.UtcNow }, cancellationToken);
                 return;
             }
 
-            if (type.Equals("join-room", StringComparison.OrdinalIgnoreCase))
+            if (type == ArenaClientEvents.JoinRoom)
             {
-                var payload = document.RootElement.GetProperty("payload");
-                var roomId = payload.GetProperty("roomId").GetString() ?? string.Empty;
-                var name = payload.TryGetProperty("name", out var nameProp) ? nameProp.GetString() : connection.DisplayName;
-                var requestedRole = payload.TryGetProperty("role", out var roleProp) ? roleProp.GetString() : "player";
+                await HandleJoinRoomAsync(connection, document.RootElement, cancellationToken);
+                return;
+            }
 
-                if (!_rooms.TryGetValue(roomId, out var room))
+            if (string.IsNullOrEmpty(connection.RoomId) ||
+                !_rooms.TryGetValue(connection.RoomId, out var activeRoom))
+            {
+                return;
+            }
+
+            if (type == ArenaClientEvents.StartGame)
+            {
+                if (!IsHost(connection, activeRoom)) return;
+                await BeginCountdownAndStartAsync(activeRoom, cancellationToken);
+                return;
+            }
+
+            if (type == ArenaClientEvents.NextQuestion)
+            {
+                if (!IsHost(connection, activeRoom)) return;
+
+                if (activeRoom.Phase == ArenaRoom.PhaseLobby || activeRoom.CurrentQuestionIndex < 0)
                 {
-                    await SendAsync(connection, "error", new { message = "Mã PIN không tồn tại." }, cancellationToken);
-                    return;
-                }
-
-                connection.RoomId = roomId;
-
-                if (requestedRole == "host" && (connection.IsAdmin || connection.Role == "Admin"))
-                {
-                    room.HostConnectionId = connection.ConnectionId;
-                    await SendAsync(connection, "room-state", GetRoomStateForHost(room), cancellationToken);
+                    await BeginCountdownAndStartAsync(activeRoom, cancellationToken);
                 }
                 else
                 {
-                    var player = new ArenaPlayer
-                    {
-                        ConnectionId = connection.ConnectionId,
-                        Name = name ?? "Học sinh ẩn danh",
-                        Score = 0
-                    };
-                    room.Players[connection.ConnectionId] = player;
-
-                    // Notify host about new player
-                    await BroadcastToRoomAsync(roomId, "player-joined", new
-                    {
-                        player,
-                        players = GetSanitizedPlayers(room)
-                    });
-
-                    // Send room state to newly joined player
-                    await SendAsync(connection, "room-state", GetRoomStateForPlayer(room, connection.ConnectionId), cancellationToken);
+                    await StartNextQuestionAsync(activeRoom, cancellationToken);
                 }
                 return;
             }
 
-            // All other actions require being in a room
-            if (string.IsNullOrEmpty(connection.RoomId) || !_rooms.TryGetValue(connection.RoomId, out var activeRoom))
+            if (type == ArenaClientEvents.SubmitAnswer)
             {
+                await HandleSubmitAnswerAsync(connection, activeRoom, document.RootElement, cancellationToken);
                 return;
             }
 
-            if (type.Equals("start-question", StringComparison.OrdinalIgnoreCase) || type.Equals("next-question", StringComparison.OrdinalIgnoreCase))
+            if (type == ArenaClientEvents.ShowResults)
             {
-                if (connection.ConnectionId != activeRoom.HostConnectionId) return;
-
-                if (activeRoom.CurrentQuestionIndex + 1 >= activeRoom.Questions.Count)
-                {
-                    await BroadcastToRoomAsync(connection.RoomId, "game-over", new
-                    {
-                        leaderboard = GetLeaderboard(activeRoom)
-                    }, cancellationToken);
-                    return;
-                }
-
-                activeRoom.CurrentQuestionIndex++;
-                activeRoom.QuestionStartTime = DateTime.UtcNow;
-                activeRoom.ShowAnswers = false;
-
-                // Reset player responses for new question
-                foreach (var player in activeRoom.Players.Values)
-                {
-                    player.HasAnswered = false;
-                    player.SelectedAnswerId = null;
-                    player.ScoreDelta = 0;
-                    player.LastAnswerCorrect = null;
-                }
-
-                // Broadcast question to players (without showing correct answers)
-                await BroadcastRoomStateToEveryone(activeRoom, cancellationToken);
-                return;
-            }
-
-            if (type.Equals("submit-answer", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!activeRoom.Players.TryGetValue(connection.ConnectionId, out var player)) return;
-                if (activeRoom.CurrentQuestionIndex < 0 || activeRoom.CurrentQuestionIndex >= activeRoom.Questions.Count) return;
-                if (player.HasAnswered || activeRoom.ShowAnswers) return;
-
-                var payload = document.RootElement.GetProperty("payload");
-                var answerId = payload.GetProperty("answerId").GetString();
-
-                var currentQuestion = activeRoom.Questions[activeRoom.CurrentQuestionIndex];
-                var selectedAnswer = currentQuestion.Answers.FirstOrDefault(a => a.Id == answerId);
-
-                player.HasAnswered = true;
-                player.SelectedAnswerId = answerId;
-
-                if (selectedAnswer != null && selectedAnswer.IsCorrect)
-                {
-                    var baseScore = currentQuestion.Score > 0 ? currentQuestion.Score : 1000;
-                    var timeTakenSec = activeRoom.QuestionStartTime.HasValue 
-                        ? (DateTime.UtcNow - activeRoom.QuestionStartTime.Value).TotalSeconds 
-                        : 0;
-                    var totalTimeSec = 20.0;
-                    double multiplier = 1.0;
-                    if (timeTakenSec < totalTimeSec)
-                    {
-                        multiplier = 1.0 - (timeTakenSec / totalTimeSec) * 0.5;
-                    }
-                    else
-                    {
-                        multiplier = 0.5;
-                    }
-
-                    var points = (int)Math.Round(baseScore * (decimal)multiplier);
-                    player.ScoreDelta = points;
-                    player.Score += points;
-                    player.LastAnswerCorrect = true;
-                }
-                else
-                {
-                    player.ScoreDelta = 0;
-                    player.LastAnswerCorrect = false;
-                }
-
-                // Notify host that player answered
-                var answeredCount = activeRoom.Players.Values.Count(p => p.HasAnswered);
-                var totalPlayers = activeRoom.Players.Count;
-
-                await SendToConnectionIdAsync(activeRoom.HostConnectionId, "player-answered", new
-                {
-                    connectionId = connection.ConnectionId,
-                    playerName = player.Name,
-                    answeredCount,
-                    totalPlayers
-                }, cancellationToken);
-
-                // Send immediate answer confirmation to player
-                await SendAsync(connection, "answer-submitted", new
-                {
-                    hasAnswered = true,
-                    selectedAnswerId = answerId
-                }, cancellationToken);
-
-                // Auto end question if all players answered
-                if (answeredCount == totalPlayers && totalPlayers > 0)
-                {
-                    await EndQuestionAsync(activeRoom, cancellationToken);
-                }
-                return;
-            }
-
-            if (type.Equals("show-results", StringComparison.OrdinalIgnoreCase))
-            {
-                if (connection.ConnectionId != activeRoom.HostConnectionId) return;
+                if (!IsHost(connection, activeRoom)) return;
                 await EndQuestionAsync(activeRoom, cancellationToken);
                 return;
             }
 
-            if (type.Equals("show-leaderboard", StringComparison.OrdinalIgnoreCase))
+            if (type == ArenaClientEvents.ShowLeaderboard)
             {
-                if (connection.ConnectionId != activeRoom.HostConnectionId) return;
-                await BroadcastToRoomAsync(activeRoom.RoomId, "leaderboard", new
-                {
-                    leaderboard = GetLeaderboard(activeRoom)
-                }, cancellationToken);
+                if (!IsHost(connection, activeRoom)) return;
+                await BroadcastLeaderboardUpdatedAsync(activeRoom, cancellationToken);
+            }
+        }
+
+        private async Task HandleJoinRoomAsync(
+            ArenaSocketConnection connection,
+            JsonElement root,
+            CancellationToken cancellationToken)
+        {
+            if (!root.TryGetProperty("payload", out var payload))
+            {
+                await SendAsync(connection, ArenaEvents.Error, new { message = "Thiếu dữ liệu tham gia phòng." }, cancellationToken);
+                return;
+            }
+
+            var roomId = GetString(payload, "roomId") ?? GetString(payload, "pin") ?? string.Empty;
+            var requestedRole = GetString(payload, "role") ?? "player";
+            var requestedName = GetString(payload, "name") ?? connection.DisplayName;
+
+            if (!_rooms.TryGetValue(roomId, out var room))
+            {
+                await SendAsync(connection, ArenaEvents.Error, new { message = "Mã PIN không tồn tại." }, cancellationToken);
+                return;
+            }
+
+            connection.RoomId = roomId;
+
+            if (string.Equals(requestedRole, "host", StringComparison.OrdinalIgnoreCase) &&
+                (connection.IsAdmin || string.Equals(connection.Role, "Admin", StringComparison.OrdinalIgnoreCase)))
+            {
+                room.HostConnectionId = connection.ConnectionId;
+                await SendAsync(connection, ArenaEvents.RoomState, GetRoomStateForHost(room), cancellationToken);
+                await BroadcastLeaderboardUpdatedAsync(room, cancellationToken);
+                return;
+            }
+
+            var playerName = string.IsNullOrWhiteSpace(requestedName)
+                ? "Học sinh ẩn danh"
+                : requestedName.Trim();
+
+            if (playerName.Length > 40)
+            {
+                playerName = playerName[..40];
+            }
+
+            var player = new ArenaPlayer
+            {
+                ConnectionId = connection.ConnectionId,
+                Name = playerName,
+                Score = 0
+            };
+
+            room.Players[connection.ConnectionId] = player;
+
+            await SendAsync(connection, ArenaEvents.RoomState, GetRoomStateForPlayer(room, connection.ConnectionId), cancellationToken);
+            await BroadcastToRoomAsync(roomId, ArenaEvents.PlayerJoined, new
+            {
+                player = SanitizePlayer(player),
+                players = GetSanitizedPlayers(room),
+                answerStats = GetAnswerStats(room),
+                leaderboard = GetLeaderboard(room)
+            }, cancellationToken);
+            await BroadcastLeaderboardUpdatedAsync(room, cancellationToken);
+        }
+
+        private async Task BeginCountdownAndStartAsync(ArenaRoom room, CancellationToken cancellationToken)
+        {
+            if (room.Questions.Count == 0)
+            {
+                await CompleteGameAsync(room, cancellationToken);
+                return;
+            }
+
+            room.Phase = ArenaRoom.PhaseCountdown;
+            room.ShowAnswers = false;
+            room.CountdownEndsAt = DateTime.UtcNow.AddSeconds(room.CountdownSeconds);
+            room.IsClosed = false;
+
+            await BroadcastRoomStateToEveryone(room, cancellationToken);
+            await BroadcastToRoomAsync(room.RoomId, ArenaEvents.GameStarted, new
+            {
+                phase = room.Phase,
+                countdownSeconds = room.CountdownSeconds,
+                countdownEndsAt = room.CountdownEndsAt,
+                roomId = room.RoomId,
+                testName = room.TestName
+            }, cancellationToken);
+
+            await Task.Delay(TimeSpan.FromSeconds(room.CountdownSeconds), cancellationToken);
+
+            if (room.Phase == ArenaRoom.PhaseCountdown)
+            {
+                await StartNextQuestionAsync(room, cancellationToken);
+            }
+        }
+
+        private async Task StartNextQuestionAsync(ArenaRoom room, CancellationToken cancellationToken)
+        {
+            if (room.CurrentQuestionIndex + 1 >= room.Questions.Count)
+            {
+                await CompleteGameAsync(room, cancellationToken);
+                return;
+            }
+
+            room.CurrentQuestionIndex++;
+            room.Phase = ArenaRoom.PhaseInGame;
+            room.ShowAnswers = false;
+            room.QuestionStartTime = DateTime.UtcNow;
+            room.QuestionEndsAt = room.QuestionStartTime.Value.AddSeconds(room.QuestionDurationSeconds);
+            room.CountdownEndsAt = null;
+
+            foreach (var player in room.Players.Values)
+            {
+                player.HasAnswered = false;
+                player.SelectedAnswerId = null;
+                player.ScoreDelta = 0;
+                player.LastAnswerCorrect = null;
+                player.SpeedBonus = 0;
+                player.StreakBonus = 0;
+                player.LastAnswerMs = null;
+            }
+
+            await BroadcastRoomStateToEveryone(room, cancellationToken);
+            await BroadcastToRoomAsync(room.RoomId, ArenaEvents.QuestionShown, new
+            {
+                phase = room.Phase,
+                currentQuestionIndex = room.CurrentQuestionIndex,
+                totalQuestions = room.Questions.Count,
+                questionDurationSeconds = room.QuestionDurationSeconds,
+                questionEndsAt = room.QuestionEndsAt,
+                answerStats = GetAnswerStats(room),
+                leaderboard = GetLeaderboard(room)
+            }, cancellationToken);
+        }
+
+        private async Task HandleSubmitAnswerAsync(
+            ArenaSocketConnection connection,
+            ArenaRoom room,
+            JsonElement root,
+            CancellationToken cancellationToken)
+        {
+            if (room.Phase != ArenaRoom.PhaseInGame || room.ShowAnswers)
+            {
+                return;
+            }
+
+            if (!room.Players.TryGetValue(connection.ConnectionId, out var player))
+            {
+                return;
+            }
+
+            if (room.CurrentQuestionIndex < 0 || room.CurrentQuestionIndex >= room.Questions.Count || player.HasAnswered)
+            {
+                return;
+            }
+
+            if (!root.TryGetProperty("payload", out var payload))
+            {
+                return;
+            }
+
+            var answerId = GetString(payload, "answerId");
+            if (string.IsNullOrWhiteSpace(answerId))
+            {
+                return;
+            }
+
+            var currentQuestion = room.Questions[room.CurrentQuestionIndex];
+            var selectedAnswer = currentQuestion.Answers.FirstOrDefault(a => a.Id == answerId);
+            var previousRank = GetPlayerRank(room, player.ConnectionId);
+            var elapsed = room.QuestionStartTime.HasValue
+                ? DateTime.UtcNow - room.QuestionStartTime.Value
+                : TimeSpan.Zero;
+
+            player.HasAnswered = true;
+            player.SelectedAnswerId = answerId;
+            player.LastAnswerMs = Math.Max(0, (int)Math.Round(elapsed.TotalMilliseconds));
+
+            var isCorrect = selectedAnswer?.IsCorrect == true;
+            if (isCorrect)
+            {
+                player.Streak++;
+                var baseScore = GetArenaBaseScore(currentQuestion.Score);
+                var duration = Math.Max(1, room.QuestionDurationSeconds);
+                var speedRatio = Math.Clamp(1 - elapsed.TotalSeconds / duration, 0, 1);
+                var speedWeightedScore = (int)Math.Round(baseScore * (0.55 + speedRatio * 0.45));
+                var minimumSpeedScore = (int)Math.Round(baseScore * 0.55);
+
+                player.SpeedBonus = Math.Max(0, speedWeightedScore - minimumSpeedScore);
+                player.StreakBonus = player.Streak >= 3 ? Math.Min(500, player.Streak * 50) : 0;
+                player.ScoreDelta = speedWeightedScore + player.StreakBonus;
+                player.Score += player.ScoreDelta;
+                player.LastAnswerCorrect = true;
+            }
+            else
+            {
+                player.Streak = 0;
+                player.SpeedBonus = 0;
+                player.StreakBonus = 0;
+                player.ScoreDelta = 0;
+                player.LastAnswerCorrect = false;
+            }
+
+            var currentRank = GetPlayerRank(room, player.ConnectionId);
+            var answerStats = GetAnswerStats(room);
+            var submitPayload = new
+            {
+                connectionId = player.ConnectionId,
+                playerName = player.Name,
+                selectedAnswerId = answerId,
+                isCorrect,
+                score = player.Score,
+                scoreDelta = player.ScoreDelta,
+                streak = player.Streak,
+                speedBonus = player.SpeedBonus,
+                streakBonus = player.StreakBonus,
+                responseMs = player.LastAnswerMs,
+                rank = currentRank,
+                previousRank,
+                answerStats
+            };
+
+            await SendAsync(connection, ArenaEvents.AnswerSubmitted, submitPayload, cancellationToken);
+            await SendToConnectionIdAsync(room.HostConnectionId, ArenaEvents.AnswerSubmitted, submitPayload, cancellationToken);
+            await BroadcastLeaderboardUpdatedAsync(room, cancellationToken);
+
+            var stats = BuildAnswerStats(room);
+            if (stats.TotalPlayers > 0 && stats.AnsweredCount == stats.TotalPlayers)
+            {
+                await EndQuestionAsync(room, cancellationToken);
             }
         }
 
         private async Task EndQuestionAsync(ArenaRoom room, CancellationToken cancellationToken)
         {
+            if (room.CurrentQuestionIndex < 0 || room.CurrentQuestionIndex >= room.Questions.Count)
+            {
+                return;
+            }
+
+            room.Phase = ArenaRoom.PhaseResult;
             room.ShowAnswers = true;
+            room.QuestionEndsAt = DateTime.UtcNow;
+
             await BroadcastRoomStateToEveryone(room, cancellationToken);
+            await BroadcastToRoomAsync(room.RoomId, ArenaEvents.QuestionResult, new
+            {
+                phase = room.Phase,
+                currentQuestionIndex = room.CurrentQuestionIndex,
+                answerStats = GetAnswerStats(room),
+                leaderboard = GetLeaderboard(room)
+            }, cancellationToken);
+            await BroadcastLeaderboardUpdatedAsync(room, cancellationToken);
+        }
+
+        private async Task CompleteGameAsync(ArenaRoom room, CancellationToken cancellationToken)
+        {
+            room.Phase = ArenaRoom.PhasePodium;
+            room.ShowAnswers = true;
+            room.IsClosed = true;
+            room.QuestionEndsAt = DateTime.UtcNow;
+
+            await BroadcastRoomStateToEveryone(room, cancellationToken);
+            await BroadcastToRoomAsync(room.RoomId, ArenaEvents.GameOver, new
+            {
+                phase = room.Phase,
+                leaderboard = GetLeaderboard(room),
+                podium = GetLeaderboard(room).Take(3).ToList()
+            }, cancellationToken);
+            await BroadcastLeaderboardUpdatedAsync(room, cancellationToken);
         }
 
         private async Task BroadcastRoomStateToEveryone(ArenaRoom room, CancellationToken cancellationToken)
         {
-            // Send to Host
             if (!string.IsNullOrEmpty(room.HostConnectionId))
             {
-                await SendToConnectionIdAsync(room.HostConnectionId, "room-state", GetRoomStateForHost(room), cancellationToken);
+                await SendToConnectionIdAsync(room.HostConnectionId, ArenaEvents.RoomState, GetRoomStateForHost(room), cancellationToken);
             }
 
-            // Send custom tailored state to each player
             foreach (var playerConnId in room.Players.Keys)
             {
-                await SendToConnectionIdAsync(playerConnId, "room-state", GetRoomStateForPlayer(room, playerConnId), cancellationToken);
+                await SendToConnectionIdAsync(playerConnId, ArenaEvents.RoomState, GetRoomStateForPlayer(room, playerConnId), cancellationToken);
             }
+        }
+
+        private async Task BroadcastLeaderboardUpdatedAsync(
+            ArenaRoom room,
+            CancellationToken cancellationToken = default)
+        {
+            await BroadcastToRoomAsync(room.RoomId, ArenaEvents.LeaderboardUpdated, new
+            {
+                leaderboard = GetLeaderboard(room),
+                answerStats = GetAnswerStats(room)
+            }, cancellationToken);
         }
 
         private object GetRoomStateForHost(ArenaRoom room)
         {
-            var currentQuestion = room.CurrentQuestionIndex >= 0 && room.CurrentQuestionIndex < room.Questions.Count
-                ? room.Questions[room.CurrentQuestionIndex]
-                : null;
-
             return new
             {
                 roomId = room.RoomId,
                 testId = room.TestId,
                 testName = room.TestName,
+                phase = room.Phase,
                 currentQuestionIndex = room.CurrentQuestionIndex,
                 totalQuestions = room.Questions.Count,
                 showAnswers = room.ShowAnswers,
+                gameOver = room.Phase == ArenaRoom.PhasePodium,
+                countdownEndsAt = room.CountdownEndsAt,
+                questionStartedAt = room.QuestionStartTime,
+                questionEndsAt = room.QuestionEndsAt,
+                questionDurationSeconds = room.QuestionDurationSeconds,
                 players = GetSanitizedPlayers(room),
-                currentQuestion = currentQuestion == null ? null : new
-                {
-                    id = currentQuestion.Id,
-                    content = currentQuestion.Content,
-                    score = currentQuestion.Score,
-                    orderIndex = currentQuestion.OrderIndex,
-                    answers = currentQuestion.Answers.Select(a => new
-                    {
-                        id = a.Id,
-                        content = a.Content,
-                        isCorrect = a.IsCorrect,
-                        orderIndex = a.OrderIndex
-                    }).ToList()
-                },
+                currentQuestion = GetCurrentQuestionPayload(room, includeCorrectAnswers: true),
+                answerStats = GetAnswerStats(room),
                 answeredCount = room.Players.Values.Count(p => p.HasAnswered),
                 totalPlayers = room.Players.Count,
                 leaderboard = GetLeaderboard(room)
@@ -427,72 +576,219 @@ namespace ExamWeb.Server.Services
 
         private object GetRoomStateForPlayer(ArenaRoom room, string playerConnectionId)
         {
-            var currentQuestion = room.CurrentQuestionIndex >= 0 && room.CurrentQuestionIndex < room.Questions.Count
-                ? room.Questions[room.CurrentQuestionIndex]
-                : null;
-
             room.Players.TryGetValue(playerConnectionId, out var currentPlayer);
 
             return new
             {
                 roomId = room.RoomId,
+                testName = room.TestName,
+                phase = room.Phase,
                 currentQuestionIndex = room.CurrentQuestionIndex,
                 totalQuestions = room.Questions.Count,
                 showAnswers = room.ShowAnswers,
+                gameOver = room.Phase == ArenaRoom.PhasePodium,
+                countdownEndsAt = room.CountdownEndsAt,
+                questionStartedAt = room.QuestionStartTime,
+                questionEndsAt = room.QuestionEndsAt,
+                questionDurationSeconds = room.QuestionDurationSeconds,
                 currentPlayer = currentPlayer == null ? null : new
                 {
+                    connectionId = currentPlayer.ConnectionId,
                     name = currentPlayer.Name,
                     score = currentPlayer.Score,
                     hasAnswered = currentPlayer.HasAnswered,
                     selectedAnswerId = currentPlayer.SelectedAnswerId,
                     scoreDelta = currentPlayer.ScoreDelta,
-                    lastAnswerCorrect = currentPlayer.LastAnswerCorrect
+                    lastAnswerCorrect = currentPlayer.LastAnswerCorrect,
+                    streak = currentPlayer.Streak,
+                    speedBonus = currentPlayer.SpeedBonus,
+                    streakBonus = currentPlayer.StreakBonus,
+                    lastAnswerMs = currentPlayer.LastAnswerMs,
+                    rank = GetPlayerRank(room, currentPlayer.ConnectionId)
                 },
-                currentQuestion = currentQuestion == null ? null : new
-                {
-                    id = currentQuestion.Id,
-                    content = currentQuestion.Content,
-                    score = currentQuestion.Score,
-                    orderIndex = currentQuestion.OrderIndex,
-                    // Hide correctness until teacher triggers "Show Answers"
-                    answers = currentQuestion.Answers.Select(a => new
-                    {
-                        id = a.Id,
-                        content = a.Content,
-                        orderIndex = a.OrderIndex,
-                        isCorrect = room.ShowAnswers ? a.IsCorrect : (bool?)null
-                    }).ToList()
-                },
-                leaderboard = room.ShowAnswers ? GetLeaderboard(room) : null
+                currentQuestion = GetCurrentQuestionPayload(room, includeCorrectAnswers: room.ShowAnswers),
+                answerStats = GetAnswerStats(room),
+                leaderboard = GetLeaderboard(room)
             };
         }
 
-        private List<object> GetSanitizedPlayers(ArenaRoom room)
+        private object? GetCurrentQuestionPayload(ArenaRoom room, bool includeCorrectAnswers)
+        {
+            if (room.CurrentQuestionIndex < 0 || room.CurrentQuestionIndex >= room.Questions.Count)
+            {
+                return null;
+            }
+
+            var currentQuestion = room.Questions[room.CurrentQuestionIndex];
+            return new
+            {
+                id = currentQuestion.Id,
+                content = currentQuestion.Content,
+                questionType = currentQuestion.QuestionType,
+                imageUrl = currentQuestion.ImageUrl,
+                score = currentQuestion.Score,
+                orderIndex = currentQuestion.OrderIndex,
+                answers = currentQuestion.Answers.Select(a => new
+                {
+                    id = a.Id,
+                    content = a.Content,
+                    orderIndex = a.OrderIndex,
+                    isCorrect = includeCorrectAnswers ? a.IsCorrect : (bool?)null
+                }).ToList()
+            };
+        }
+
+        private static object SanitizePlayer(ArenaPlayer player)
+        {
+            return new
+            {
+                connectionId = player.ConnectionId,
+                name = player.Name,
+                score = player.Score,
+                hasAnswered = player.HasAnswered,
+                streak = player.Streak
+            };
+        }
+
+        private static List<object> GetSanitizedPlayers(ArenaRoom room)
         {
             return room.Players.Values
-                .Select(p => (object)new
+                .Select(SanitizePlayer)
+                .ToList();
+        }
+
+        private static List<object> GetLeaderboard(ArenaRoom room)
+        {
+            return BuildLeaderboard(room)
+                .Select(entry => (object)new
                 {
-                    connectionId = p.ConnectionId,
-                    name = p.Name,
-                    score = p.Score,
-                    hasAnswered = p.HasAnswered
+                    rank = entry.Rank,
+                    connectionId = entry.ConnectionId,
+                    name = entry.Name,
+                    score = entry.Score,
+                    scoreDelta = entry.ScoreDelta,
+                    lastAnswerCorrect = entry.LastAnswerCorrect,
+                    streak = entry.Streak,
+                    hasAnswered = entry.HasAnswered,
+                    speedBonus = entry.SpeedBonus,
+                    streakBonus = entry.StreakBonus,
+                    responseMs = entry.LastAnswerMs
                 })
                 .ToList();
         }
 
-        private List<object> GetLeaderboard(ArenaRoom room)
+        private static List<ArenaLeaderboardEntry> BuildLeaderboard(ArenaRoom room)
         {
             return room.Players.Values
                 .OrderByDescending(p => p.Score)
-                .Select((p, idx) => (object)new
+                .ThenByDescending(p => p.ScoreDelta)
+                .ThenBy(p => p.Name)
+                .Select((p, idx) => new ArenaLeaderboardEntry
                 {
-                    rank = idx + 1,
-                    name = p.Name,
-                    score = p.Score,
-                    scoreDelta = p.ScoreDelta,
-                    lastAnswerCorrect = p.LastAnswerCorrect
+                    Rank = idx + 1,
+                    ConnectionId = p.ConnectionId,
+                    Name = p.Name,
+                    Score = p.Score,
+                    ScoreDelta = p.ScoreDelta,
+                    LastAnswerCorrect = p.LastAnswerCorrect,
+                    Streak = p.Streak,
+                    HasAnswered = p.HasAnswered,
+                    SpeedBonus = p.SpeedBonus,
+                    StreakBonus = p.StreakBonus,
+                    LastAnswerMs = p.LastAnswerMs
                 })
                 .ToList();
+        }
+
+        private static int? GetPlayerRank(ArenaRoom room, string connectionId)
+        {
+            return BuildLeaderboard(room)
+                .FirstOrDefault(entry => entry.ConnectionId == connectionId)
+                ?.Rank;
+        }
+
+        private static object GetAnswerStats(ArenaRoom room)
+        {
+            var stats = BuildAnswerStats(room);
+            return new
+            {
+                answeredCount = stats.AnsweredCount,
+                totalPlayers = stats.TotalPlayers,
+                correctCount = stats.CorrectCount,
+                wrongCount = stats.WrongCount,
+                pendingCount = stats.PendingCount,
+                accuracyPercent = stats.AccuracyPercent
+            };
+        }
+
+        private static ArenaAnswerStats BuildAnswerStats(ArenaRoom room)
+        {
+            var answeredCount = room.Players.Values.Count(p => p.HasAnswered);
+            var correctCount = room.Players.Values.Count(p => p.LastAnswerCorrect == true);
+            var wrongCount = room.Players.Values.Count(p => p.LastAnswerCorrect == false);
+            var totalPlayers = room.Players.Count;
+
+            return new ArenaAnswerStats
+            {
+                AnsweredCount = answeredCount,
+                TotalPlayers = totalPlayers,
+                CorrectCount = correctCount,
+                WrongCount = wrongCount,
+                PendingCount = Math.Max(0, totalPlayers - answeredCount),
+                AccuracyPercent = answeredCount == 0
+                    ? 0
+                    : (int)Math.Round(correctCount * 100.0 / answeredCount)
+            };
+        }
+
+        private static int GetArenaBaseScore(decimal questionScore)
+        {
+            if (questionScore <= 0)
+            {
+                return 1000;
+            }
+
+            return Math.Max(100, (int)Math.Round(questionScore * 1000));
+        }
+
+        private static bool IsHost(ArenaSocketConnection connection, ArenaRoom room)
+        {
+            return !string.IsNullOrWhiteSpace(room.HostConnectionId) &&
+                connection.ConnectionId == room.HostConnectionId;
+        }
+
+        private static string? GetString(JsonElement element, string propertyName)
+        {
+            if (!element.TryGetProperty(propertyName, out var property) ||
+                property.ValueKind == JsonValueKind.Null ||
+                property.ValueKind == JsonValueKind.Undefined)
+            {
+                return null;
+            }
+
+            return property.GetString();
+        }
+
+        private static string NormalizeClientMessageType(string? rawType)
+        {
+            if (string.IsNullOrWhiteSpace(rawType))
+            {
+                return string.Empty;
+            }
+
+            var normalized = rawType.Trim().Replace("-", string.Empty).Replace("_", string.Empty).ToLowerInvariant();
+            return normalized switch
+            {
+                "ping" => ArenaClientEvents.Ping,
+                "joinroom" => ArenaClientEvents.JoinRoom,
+                "startgame" => ArenaClientEvents.StartGame,
+                "startquestion" => ArenaClientEvents.NextQuestion,
+                "nextquestion" => ArenaClientEvents.NextQuestion,
+                "submitanswer" => ArenaClientEvents.SubmitAnswer,
+                "showresults" => ArenaClientEvents.ShowResults,
+                "showleaderboard" => ArenaClientEvents.ShowLeaderboard,
+                _ => rawType.Trim()
+            };
         }
 
         private async Task SendToConnectionIdAsync(
@@ -501,7 +797,7 @@ namespace ExamWeb.Server.Services
             object? payload,
             CancellationToken cancellationToken = default)
         {
-            if (_connections.TryGetValue(connectionId, out var connection))
+            if (!string.IsNullOrEmpty(connectionId) && _connections.TryGetValue(connectionId, out var connection))
             {
                 await SendAsync(connection, eventType, payload, cancellationToken);
             }
@@ -513,7 +809,9 @@ namespace ExamWeb.Server.Services
             object? payload,
             CancellationToken cancellationToken = default)
         {
-            var connections = _connections.Values.Where(x => string.Equals(x.RoomId, roomId, StringComparison.Ordinal));
+            var connections = _connections.Values
+                .Where(x => string.Equals(x.RoomId, roomId, StringComparison.Ordinal))
+                .ToList();
             var bytes = Encoding.UTF8.GetBytes(SerializeEnvelope(eventType, payload));
             var staleConnections = new ConcurrentBag<string>();
 
@@ -533,7 +831,10 @@ namespace ExamWeb.Server.Services
 
             foreach (var connId in staleConnections)
             {
-                await HandleDisconnectAsync(_connections[connId]);
+                if (_connections.TryGetValue(connId, out var staleConnection))
+                {
+                    await HandleDisconnectAsync(staleConnection);
+                }
             }
         }
 
@@ -591,6 +892,34 @@ namespace ExamWeb.Server.Services
             }, _jsonOptions);
         }
 
+        private static class ArenaClientEvents
+        {
+            public const string Ping = "Ping";
+            public const string JoinRoom = "JoinRoom";
+            public const string StartGame = "StartGame";
+            public const string NextQuestion = "NextQuestion";
+            public const string SubmitAnswer = "SubmitAnswer";
+            public const string ShowResults = "ShowResults";
+            public const string ShowLeaderboard = "ShowLeaderboard";
+        }
+
+        private static class ArenaEvents
+        {
+            public const string Connected = "Connected";
+            public const string Pong = "Pong";
+            public const string Error = "Error";
+            public const string RoomState = "RoomState";
+            public const string PlayerJoined = "PlayerJoined";
+            public const string PlayerLeft = "PlayerLeft";
+            public const string GameStarted = "GameStarted";
+            public const string QuestionShown = "QuestionShown";
+            public const string AnswerSubmitted = "AnswerSubmitted";
+            public const string LeaderboardUpdated = "LeaderboardUpdated";
+            public const string QuestionResult = "QuestionResult";
+            public const string GameOver = "GameOver";
+            public const string HostDisconnected = "HostDisconnected";
+        }
+
         private sealed class ArenaSocketConnection
         {
             public ArenaSocketConnection(
@@ -615,6 +944,31 @@ namespace ExamWeb.Server.Services
             public bool IsAdmin => string.Equals(Role, "Admin", StringComparison.OrdinalIgnoreCase);
             public string? RoomId { get; set; }
             public SemaphoreSlim SendLock { get; } = new(1, 1);
+        }
+
+        private sealed class ArenaLeaderboardEntry
+        {
+            public int Rank { get; set; }
+            public string ConnectionId { get; set; } = string.Empty;
+            public string Name { get; set; } = string.Empty;
+            public decimal Score { get; set; }
+            public int ScoreDelta { get; set; }
+            public bool? LastAnswerCorrect { get; set; }
+            public int Streak { get; set; }
+            public bool HasAnswered { get; set; }
+            public int SpeedBonus { get; set; }
+            public int StreakBonus { get; set; }
+            public int? LastAnswerMs { get; set; }
+        }
+
+        private sealed class ArenaAnswerStats
+        {
+            public int AnsweredCount { get; set; }
+            public int TotalPlayers { get; set; }
+            public int CorrectCount { get; set; }
+            public int WrongCount { get; set; }
+            public int PendingCount { get; set; }
+            public int AccuracyPercent { get; set; }
         }
     }
 }

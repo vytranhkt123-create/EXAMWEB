@@ -1,12 +1,51 @@
-import { useState } from 'react'
-import { useArenaSocket } from '../../hooks/useArenaSocket'
+import { useEffect, useMemo, useState } from 'react'
+import { ARENA_PHASES, useArenaSocket } from '../../hooks/useArenaSocket'
+import { MathText } from '../MathText'
 
-export function StudentArena({ onClose, setStudentTest, setStudentTestMode }) {
-    const [pin, setPin] = useState('')
-    const [name, setName] = useState('')
+const ANSWER_THEMES = [
+    { key: 'red', symbol: '▲', label: 'A' },
+    { key: 'blue', symbol: '◆', label: 'B' },
+    { key: 'gold', symbol: '●', label: 'C' },
+    { key: 'green', symbol: '■', label: 'D' },
+]
+
+function formatScore(value) {
+    return Number(value || 0).toLocaleString('vi-VN', { maximumFractionDigits: 0 })
+}
+
+function getPhase(roomState) {
+    if (!roomState) return ARENA_PHASES.LOBBY
+    if (roomState.gameOver) return ARENA_PHASES.PODIUM
+    if (roomState.phase) return roomState.phase
+    if (roomState.currentQuestionIndex === -1) return ARENA_PHASES.LOBBY
+    return roomState.showAnswers ? ARENA_PHASES.RESULT : ARENA_PHASES.IN_GAME
+}
+
+function getRemainingMs(target, now) {
+    if (!target) return 0
+    return Math.max(0, Date.parse(target) - now)
+}
+
+function getPlayerRank(roomState) {
+    if (roomState?.currentPlayer?.rank) return roomState.currentPlayer.rank
+    const connectionId = roomState?.currentPlayer?.connectionId
+    return roomState?.leaderboard?.find((player) => player.connectionId === connectionId)?.rank || null
+}
+
+export function StudentArena({
+    arenaRoomId,
+    auth,
+    onClose,
+    setStudentTest,
+    setStudentTestMode,
+}) {
+    const [pin, setPin] = useState(arenaRoomId || '')
+    const [name, setName] = useState(() => auth?.displayName || '')
     const [joined, setJoined] = useState(false)
+    const [now, setNow] = useState(() => Date.now())
 
     const {
+        isConnected,
         roomState,
         error,
         setError,
@@ -14,18 +53,43 @@ export function StudentArena({ onClose, setStudentTest, setStudentTestMode }) {
         submitAnswer,
     } = useArenaSocket()
 
-    const handleJoin = (e) => {
-        e.preventDefault()
-        if (!pin.trim() || !name.trim()) {
-            setError('Vui lòng nhập đầy đủ mã PIN và tên của bạn')
+    const phase = getPhase(roomState)
+    const currentPlayer = roomState?.currentPlayer
+    const currentQuestion = roomState?.currentQuestion
+    const leaderboard = roomState?.leaderboard || []
+    const myRank = getPlayerRank(roomState)
+
+    useEffect(() => {
+        const timer = window.setInterval(() => setNow(Date.now()), 150)
+        return () => window.clearInterval(timer)
+    }, [])
+
+    const countdownRemaining = Math.ceil(getRemainingMs(roomState?.countdownEndsAt, now) / 1000)
+    const questionRemainingMs = getRemainingMs(roomState?.questionEndsAt, now)
+    const questionDurationMs = Math.max(1, Number(roomState?.questionDurationSeconds || 20) * 1000)
+    const timePercent = Math.max(0, Math.min(100, (questionRemainingMs / questionDurationMs) * 100))
+    const selectedAnswer = useMemo(
+        () => currentQuestion?.answers?.find((answer) => answer.id === currentPlayer?.selectedAnswerId) || null,
+        [currentQuestion?.answers, currentPlayer?.selectedAnswerId],
+    )
+    const correctAnswer = currentQuestion?.answers?.find((answer) => answer.isCorrect)
+
+    const handleJoin = (event) => {
+        event.preventDefault()
+        const normalizedPin = pin.trim()
+        const normalizedName = name.trim()
+
+        if (!normalizedPin || !normalizedName) {
+            setError('Vui lòng nhập mã PIN và tên hiển thị.')
             return
         }
-        setError(null)
-        joinRoom(pin.trim(), name.trim(), 'player')
-        setJoined(true)
-    }
 
-    const hasJoined = joined && !error
+        setError(null)
+        const sent = joinRoom(normalizedPin, normalizedName, 'player')
+        if (sent) {
+            setJoined(true)
+        }
+    }
 
     const handleClose = () => {
         if (typeof onClose === 'function') {
@@ -37,238 +101,233 @@ export function StudentArena({ onClose, setStudentTest, setStudentTestMode }) {
         setStudentTestMode?.(null)
     }
 
-    // State 1: Join Screen
-    if (!hasJoined || !roomState) {
+    if (!joined || !roomState) {
         return (
-            <div className="bg-gradient-to-br from-purple-800 to-indigo-900 text-white min-h-[500px] rounded-xl shadow-2xl p-6 flex flex-col justify-center items-center">
-                <div className="w-full max-w-sm text-center">
-                    <h1 className="text-4xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-amber-400 mb-2">
-                        ĐẤU TRƯỜNG
-                    </h1>
-                    <p className="text-purple-200 text-sm mb-6">Nhập mã PIN từ giáo viên để tham gia thi đấu</p>
+            <main className="arena-player-shell arena-join-stage">
+                <section className="arena-join-card" aria-labelledby="arena-join-title">
+                    <div className="arena-logo-mark">A</div>
+                    <p className="arena-kicker">Đấu trường realtime</p>
+                    <h1 id="arena-join-title">Vào phòng Arena</h1>
+                    <p className="arena-muted">Nhập PIN từ giáo viên, đặt biệt danh thật nổi bật và sẵn sàng đua điểm.</p>
 
-                    {error && (
-                        <div className="bg-red-500 bg-opacity-20 border border-red-500 text-red-200 p-3 rounded-lg text-sm mb-4">
-                            {error}
-                        </div>
-                    )}
+                    {error && <p className="arena-alert" role="alert">{error}</p>}
 
-                    <form onSubmit={handleJoin} className="space-y-4">
-                        <div>
-                            <input
-                                type="text"
-                                placeholder="MÃ PIN (Ví dụ: 123456)"
-                                value={pin}
-                                onChange={(e) => setPin(e.target.value)}
-                                className="w-full bg-white text-gray-800 border-2 border-purple-400 rounded-xl px-4 py-3.5 text-center text-xl font-bold tracking-widest placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-purple-300 transition"
-                            />
-                        </div>
-                        <div>
-                            <input
-                                type="text"
-                                placeholder="BIỆT DANH / TÊN CỦA BẠN"
-                                value={name}
-                                onChange={(e) => setName(e.target.value)}
-                                className="w-full bg-white text-gray-800 border-2 border-purple-400 rounded-xl px-4 py-3.5 text-center text-lg font-extrabold placeholder-gray-400 focus:outline-none focus:ring-4 focus:ring-purple-300 transition"
-                            />
-                        </div>
+                    <form className="arena-join-form" onSubmit={handleJoin}>
+                        <label htmlFor="arena-pin">Mã PIN</label>
+                        <input
+                            autoComplete="off"
+                            id="arena-pin"
+                            inputMode="numeric"
+                            maxLength={6}
+                            onChange={(event) => setPin(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="123456"
+                            value={pin}
+                        />
 
-                        <button
-                            type="submit"
-                            className="w-full bg-yellow-400 hover:bg-yellow-300 text-purple-950 font-black text-lg uppercase py-4 rounded-xl shadow-lg transform active:scale-95 transition"
-                        >
-                            Tham gia ngay
+                        <label htmlFor="arena-name">Biệt danh</label>
+                        <input
+                            autoComplete="nickname"
+                            id="arena-name"
+                            maxLength={40}
+                            onChange={(event) => setName(event.target.value)}
+                            placeholder="Tên của bạn"
+                            value={name}
+                        />
+
+                        <button className="arena-primary-btn" disabled={!isConnected} type="submit">
+                            {isConnected ? 'Tham gia' : 'Đang kết nối...'}
                         </button>
                     </form>
 
-                    <button
-                        onClick={handleClose}
-                        className="mt-6 text-purple-300 hover:text-white text-sm transition"
-                        type="button"
-                    >
-                        Quay lại trang chủ
+                    <button className="arena-link-btn" onClick={handleClose} type="button">
+                        Quay lại
                     </button>
-                </div>
-            </div>
+                </section>
+            </main>
         )
     }
 
-    const {
-        currentQuestionIndex,
-        totalQuestions,
-        showAnswers,
-        currentPlayer,
-        currentQuestion,
-        leaderboard,
-        gameOver
-    } = roomState
-
-    // State 2: Game Over Screen
-    if (gameOver) {
-        // Find player position in leaderboard
-        const myRankInfo = leaderboard?.find((p) => p.name === currentPlayer?.name)
+    if (phase === ARENA_PHASES.LOBBY) {
         return (
-            <div className="bg-gradient-to-br from-indigo-950 to-purple-900 text-white p-8 rounded-xl shadow-2xl min-h-[500px] flex flex-col justify-between items-center text-center">
-                <div>
-                    <h1 className="text-4xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-amber-500 mb-4">👑 KẾT THÚC TRÒ CHƠI 👑</h1>
-                    <p className="text-lg text-gray-300 mb-8">Bạn đã hoàn thành chặng đua đấu trường!</p>
-                </div>
-
-                <div className="bg-white bg-opacity-10 border border-white/20 p-6 rounded-2xl w-full max-w-sm mb-6">
-                    <p className="text-sm uppercase tracking-widest text-purple-300 font-bold mb-1">Kết quả của bạn</p>
-                    <h2 className="text-3xl font-black text-yellow-300 mb-3">{currentPlayer?.score || 0} Điểm</h2>
-                    {myRankInfo && (
-                        <div className="text-xl">
-                            Hạng <span className="text-2xl font-black text-green-400">#{myRankInfo.rank}</span> chung cuộc
-                        </div>
-                    )}
-                </div>
-
-                <button
-                    onClick={handleClose}
-                    className="px-8 py-3 bg-red-600 hover:bg-red-500 rounded-xl text-lg font-bold transition shadow-lg"
-                    type="button"
-                >
-                    Rời phòng thi đấu
-                </button>
-            </div>
-        )
-    }
-
-    // State 3: Waiting for Host to start first question
-    if (currentQuestionIndex === -1) {
-        return (
-            <div className="bg-gradient-to-br from-purple-900 to-indigo-800 text-white p-8 rounded-xl shadow-2xl min-h-[500px] flex flex-col justify-center items-center text-center">
-                <div className="animate-bounce text-6xl mb-4">🎮</div>
-                <h2 className="text-2xl font-black mb-2">Đã kết nối thành công!</h2>
-                <p className="text-purple-200 text-sm mb-6">Bạn đang ở trong phòng chờ với biệt danh <span className="font-bold text-yellow-300">{currentPlayer?.name}</span></p>
-
-                <div className="bg-black bg-opacity-20 border border-purple-700 rounded-xl p-4 py-6 max-w-xs w-full mb-8">
-                    <p className="text-xs text-purple-300 uppercase tracking-widest font-bold">Mã phòng</p>
-                    <h1 className="text-4xl font-black text-white">{pin}</h1>
-                </div>
-
-                <div className="flex items-center space-x-2 text-yellow-400 text-sm font-bold animate-pulse">
-                    <span className="h-2 w-2 rounded-full bg-yellow-400"></span>
-                    <span>Đang đợi giáo viên bắt đầu trò chơi...</span>
-                </div>
-            </div>
-        )
-    }
-
-    // Answer options colors/shapes/styles
-    const optionThemes = [
-        { bg: 'bg-red-500 hover:bg-red-600 active:bg-red-700', text: 'text-white', symbol: '▲' },
-        { bg: 'bg-blue-500 hover:bg-blue-600 active:bg-blue-700', text: 'text-white', symbol: '■' },
-        { bg: 'bg-yellow-500 hover:bg-yellow-600 active:bg-yellow-700', text: 'text-white', symbol: '●' },
-        { bg: 'bg-green-500 hover:bg-green-600 active:bg-green-700', text: 'text-white', symbol: '✦' }
-    ]
-
-    // State 4: Playing - Question Active
-    if (!showAnswers) {
-        const hasAnswered = currentPlayer?.hasAnswered
-
-        return (
-            <div className="bg-slate-900 text-white p-6 rounded-xl shadow-2xl min-h-[520px] flex flex-col justify-between">
-                {/* Score & Progress Bar */}
-                <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-800">
-                    <div>
-                        <span className="text-xs text-indigo-400 uppercase font-black">Câu hỏi {currentQuestionIndex + 1} / {totalQuestions}</span>
-                        <h3 className="text-sm font-semibold text-gray-400">{currentPlayer?.name}</h3>
+            <main className="arena-player-shell arena-waiting-stage">
+                <section className="arena-waiting-card">
+                    <p className="arena-kicker">Đã vào phòng</p>
+                    <h1>{roomState.testName || 'Arena'}</h1>
+                    <div className="arena-pin-display">
+                        <span>PIN</span>
+                        <strong>{roomState.roomId || pin}</strong>
                     </div>
-                    <div className="text-right">
-                        <span className="text-xs text-gray-500 block">ĐIỂM SỐ</span>
-                        <span className="text-xl font-black text-yellow-400">{currentPlayer?.score || 0}đ</span>
+                    <p className="arena-muted">
+                        Bạn đang thi đấu với tên <strong>{currentPlayer?.name}</strong>. Chờ giáo viên bắt đầu trận.
+                    </p>
+                    <div className="arena-pulse-row" aria-live="polite">
+                        <span />
+                        Đang chờ tín hiệu Start
                     </div>
-                </div>
-
-                {/* Content Box */}
-                <div className="flex-1 flex flex-col justify-center my-4 text-center">
-                    {!hasAnswered ? (
-                        <>
-                            <div className="bg-slate-800 p-5 rounded-2xl border border-slate-700 mb-6">
-                                <h2 className="text-xl sm:text-2xl font-bold leading-relaxed">{currentQuestion?.content}</h2>
-                            </div>
-
-                            {/* 4 Large Box Colors for answer input */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                {currentQuestion?.answers.map((answer, index) => {
-                                    const theme = optionThemes[index % 4]
-                                    return (
-                                        <button
-                                            key={answer.id}
-                                            onClick={() => submitAnswer(answer.id)}
-                                            className={`${theme.bg} ${theme.text} p-6 rounded-2xl flex items-center justify-center space-x-3 shadow-lg hover:scale-102 transform active:scale-98 transition font-bold text-lg min-h-[80px] border-b-4 border-black/20`}
-                                        >
-                                            <span className="bg-white bg-opacity-20 rounded-lg h-8 w-8 flex items-center justify-center text-lg font-black">
-                                                {theme.symbol}
-                                            </span>
-                                            <span>{answer.content}</span>
-                                        </button>
-                                    )
-                                })}
-                            </div>
-                        </>
-                    ) : (
-                        <div className="flex flex-col items-center justify-center space-y-4 py-12">
-                            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-yellow-400 mb-2"></div>
-                            <h2 className="text-2xl font-black text-yellow-300">ĐÃ GỬI ĐÁP ÁN!</h2>
-                            <p className="text-slate-400">Đang chờ các bạn khác trả lời hoặc giáo viên khóa câu hỏi...</p>
-                        </div>
-                    )}
-                </div>
-
-                {/* Status bar */}
-                <div className="mt-4 pt-2 text-center text-xs text-slate-500">
-                    Cố gắng trả lời thật nhanh để nhận điểm thưởng tối đa!
-                </div>
-            </div>
+                </section>
+            </main>
         )
     }
 
-    // State 5: Result Screen (After Host closes the question)
-    const isCorrect = currentPlayer?.lastAnswerCorrect
-    const selectedAnswerObj = currentQuestion?.answers.find((a) => a.id === currentPlayer?.selectedAnswerId)
+    if (phase === ARENA_PHASES.COUNTDOWN) {
+        return (
+            <main className="arena-player-shell arena-countdown-stage">
+                <section className="arena-countdown-card" aria-live="assertive">
+                    <p className="arena-kicker">Chuẩn bị</p>
+                    <div className="arena-countdown-number">{Math.max(1, countdownRemaining || 1)}</div>
+                    <h1>Sắp bắt đầu</h1>
+                    <p className="arena-muted">Giữ mắt trên màn hình, trả lời càng nhanh điểm càng cao.</p>
+                </section>
+            </main>
+        )
+    }
+
+    if (phase === ARENA_PHASES.PODIUM) {
+        const podium = (roomState.podium?.length ? roomState.podium : leaderboard).slice(0, 3)
+        return (
+            <main className="arena-player-shell arena-podium-stage">
+                <section className="arena-student-podium">
+                    <p className="arena-kicker">Kết thúc trận</p>
+                    <h1>Podium</h1>
+
+                    <div className="arena-podium-row">
+                        {podium.map((player, index) => (
+                            <article className={`arena-podium-card rank-${index + 1}`} key={player.connectionId || player.name}>
+                                <span>#{player.rank}</span>
+                                <strong>{player.name}</strong>
+                                <small>{formatScore(player.score)} điểm</small>
+                            </article>
+                        ))}
+                    </div>
+
+                    <div className="arena-my-result">
+                        <span>Thành tích của bạn</span>
+                        <strong>{formatScore(currentPlayer?.score)} điểm</strong>
+                        <small>{myRank ? `Hạng #${myRank}` : 'Chưa có hạng'}</small>
+                    </div>
+
+                    <button className="arena-danger-btn" onClick={handleClose} type="button">
+                        Rời Arena
+                    </button>
+                </section>
+            </main>
+        )
+    }
+
+    const hasAnswered = Boolean(currentPlayer?.hasAnswered)
+    const isResultPhase = phase === ARENA_PHASES.RESULT
+    const resultIsCorrect = currentPlayer?.lastAnswerCorrect === true
+    const resultClass = resultIsCorrect ? 'correct' : 'wrong'
+    const flashClass = phase === ARENA_PHASES.IN_GAME &&
+        hasAnswered &&
+        typeof currentPlayer?.lastAnswerCorrect === 'boolean'
+        ? `arena-flash-${resultClass}`
+        : ''
 
     return (
-        <div className={`p-6 rounded-xl shadow-2xl min-h-[520px] flex flex-col justify-between text-white ${
-            isCorrect ? 'bg-gradient-to-br from-green-800 to-emerald-900' : 'bg-gradient-to-br from-red-800 to-rose-950'
-        }`}>
-            {/* Top Bar */}
-            <div className="flex justify-between items-center pb-3 border-b border-white/10">
-                <span className="text-xs uppercase font-black tracking-widest text-white/70">KẾT QUẢ CÂU {currentQuestionIndex + 1}</span>
-                <span className="text-lg font-black text-yellow-300">{currentPlayer?.score || 0}đ</span>
-            </div>
-
-            {/* Results Announcement */}
-            <div className="flex-1 flex flex-col justify-center items-center text-center my-6 space-y-4">
-                <div className="text-6xl">{isCorrect ? '🎉' : '❌'}</div>
-                <h1 className="text-4xl font-black tracking-wide">
-                    {isCorrect ? 'CHÍNH XÁC!' : 'SAI MẤT RỒI!'}
-                </h1>
-                
-                {isCorrect ? (
-                    <div className="bg-white/15 px-6 py-3 rounded-full text-lg font-extrabold animate-bounce-slow text-yellow-300">
-                        +{currentPlayer?.scoreDelta} Điểm thưởng! ⚡
-                    </div>
-                ) : (
-                    <div className="bg-white/10 px-6 py-3 rounded-full text-sm text-gray-200">
-                        +0 Điểm. Hãy cố gắng ở câu tiếp theo!
-                    </div>
-                )}
-
-                <div className="max-w-xs bg-black/20 p-4 rounded-xl text-left text-sm space-y-2 mt-4 w-full">
-                    <p className="text-white/60 font-semibold text-xs uppercase">Lựa chọn của bạn:</p>
-                    <p className="font-bold text-white">
-                        {selectedAnswerObj ? selectedAnswerObj.content : 'Không đưa ra câu trả lời'}
-                    </p>
+        <main className={`arena-player-shell arena-game-stage ${flashClass}`}>
+            <section className="arena-player-hud">
+                <div>
+                    <span>Câu {Number(roomState.currentQuestionIndex || 0) + 1}/{roomState.totalQuestions || 0}</span>
+                    <strong>{currentPlayer?.name}</strong>
                 </div>
-            </div>
+                <div className="arena-score-pill">
+                    <span>Điểm</span>
+                    <strong>{formatScore(currentPlayer?.score)}</strong>
+                </div>
+                <div className="arena-score-pill">
+                    <span>Hạng</span>
+                    <strong>{myRank ? `#${myRank}` : '--'}</strong>
+                </div>
+            </section>
 
-            {/* Footer status */}
-            <div className="text-center text-xs text-white/50 animate-pulse">
-                Hãy chú ý màn hình của giáo viên để xem câu hỏi tiếp theo!
-            </div>
-        </div>
+            {!isResultPhase && (
+                <div className="arena-time-track" aria-label="Thời gian còn lại">
+                    <span style={{ width: `${timePercent}%` }} />
+                </div>
+            )}
+
+            <section className="arena-question-card">
+                <div className="arena-question-text">
+                    <MathText text={currentQuestion?.content || ''} />
+                </div>
+                {currentQuestion?.imageUrl && (
+                    <img
+                        alt=""
+                        className="arena-question-image"
+                        loading="lazy"
+                        src={currentQuestion.imageUrl}
+                    />
+                )}
+            </section>
+
+            <section className="arena-answer-grid" aria-label="Các đáp án">
+                {(currentQuestion?.answers || []).map((answer, index) => {
+                    const theme = ANSWER_THEMES[index % ANSWER_THEMES.length]
+                    const selected = answer.id === currentPlayer?.selectedAnswerId
+                    const showCorrect = isResultPhase && answer.isCorrect
+                    const showWrong = isResultPhase && selected && !answer.isCorrect
+
+                    return (
+                        <button
+                            className={[
+                                'arena-answer-card',
+                                `theme-${theme.key}`,
+                                selected ? 'selected' : '',
+                                showCorrect ? 'is-correct' : '',
+                                showWrong ? 'is-wrong' : '',
+                            ].filter(Boolean).join(' ')}
+                            disabled={hasAnswered || isResultPhase}
+                            key={answer.id}
+                            onClick={() => submitAnswer(answer.id)}
+                            type="button"
+                        >
+                            <span className="arena-answer-symbol">{theme.symbol}</span>
+                            <span className="arena-answer-copy">
+                                <MathText text={answer.content} />
+                            </span>
+                        </button>
+                    )
+                })}
+            </section>
+
+            {hasAnswered && !isResultPhase && (
+                <section className={`arena-answer-feedback ${resultClass}`} aria-live="polite">
+                    <span>{resultIsCorrect ? 'Chính xác' : 'Chưa đúng'}</span>
+                    <strong>{resultIsCorrect ? `+${formatScore(currentPlayer?.scoreDelta)} điểm` : '+0 điểm'}</strong>
+                    <div className="arena-bonus-row">
+                        <small>Streak {currentPlayer?.streak || 0}</small>
+                        <small>Speed +{formatScore(currentPlayer?.speedBonus)}</small>
+                        {myRank && <small>Hạng #{myRank}</small>}
+                    </div>
+                </section>
+            )}
+
+            {isResultPhase && (
+                <section className={`arena-result-panel ${resultClass}`} aria-live="polite">
+                    <div>
+                        <span>{resultIsCorrect ? 'Câu này bạn làm đúng' : 'Câu này chưa chính xác'}</span>
+                        <strong>{resultIsCorrect ? `+${formatScore(currentPlayer?.scoreDelta)} điểm` : '+0 điểm'}</strong>
+                        <small>
+                            {selectedAnswer
+                                ? `Bạn chọn: ${selectedAnswer.content}`
+                                : 'Bạn chưa chọn đáp án.'}
+                        </small>
+                        {!resultIsCorrect && correctAnswer && <small>Đáp án đúng: {correctAnswer.content}</small>}
+                    </div>
+                    <div className="arena-mini-leaderboard">
+                        {leaderboard.slice(0, 5).map((player) => (
+                            <div
+                                className={player.connectionId === currentPlayer?.connectionId ? 'current' : ''}
+                                key={player.connectionId || player.name}
+                            >
+                                <span>#{player.rank} {player.name}</span>
+                                <strong>{formatScore(player.score)}</strong>
+                            </div>
+                        ))}
+                    </div>
+                </section>
+            )}
+        </main>
     )
 }
