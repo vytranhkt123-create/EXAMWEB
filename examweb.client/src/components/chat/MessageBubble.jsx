@@ -39,7 +39,7 @@ export function MessageBubble({
     }
 
     return (
-        <article className={`chat-message ${isMine ? 'mine' : 'theirs'} ${message.isDeleted ? 'deleted' : ''}`}>
+        <article className={`chat-bubble ${isMine ? 'mine' : 'theirs'} ${message.isDeleted ? 'deleted' : ''}`}>
             {!isMine && <span className="chat-message-author">{message.authorDisplayName}</span>}
 
             <div className="chat-message-body">
